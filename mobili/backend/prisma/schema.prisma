@@ -1,0 +1,247 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  VOYAGEUR
+  AGENT
+  ADMIN_COMPANY
+  SUPER_ADMIN
+}
+
+enum TripStatus {
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  ORANGE_MONEY
+  MOOV_MONEY
+  WAVE
+  CARD
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  REFUNDED
+}
+
+enum ValidationStatus {
+  VALID
+  INVALID
+  ALREADY_USED
+  NOT_FOUND
+}
+
+enum NotificationChannel {
+  SMS
+  EMAIL
+}
+
+model User {
+  id           String   @id @default(uuid())
+  firstName    String
+  lastName     String
+  email        String   @unique
+  phone        String   @unique
+  passwordHash String
+  isActive     Boolean  @default(true)
+  role         Role     @default(VOYAGEUR)
+  companyId    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company           Company?           @relation(fields: [companyId], references: [id])
+  reservations      Reservation[]
+  ticketValidations TicketValidation[]
+  notifications     Notification[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([companyId])
+}
+
+model Company {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  logo         String?
+  contactEmail String
+  contactPhone String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users    User[]
+  vehicles Vehicle[]
+  routes   Route[]
+}
+
+model Vehicle {
+  id                 String   @id @default(uuid())
+  registrationNumber String   @unique
+  type               String
+  totalSeats         Int
+  isActive           Boolean  @default(true)
+  companyId          String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  seats   Seat[]
+  trips   Trip[]
+
+  @@index([companyId])
+}
+
+model Route {
+  id                String   @id @default(uuid())
+  origin            String
+  destination       String
+  distance          Int?
+  estimatedDuration Int?
+  companyId         String
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  trips   Trip[]
+
+  @@index([companyId])
+  @@index([origin, destination])
+}
+
+model Trip {
+  id             String     @id @default(uuid())
+  routeId        String
+  vehicleId      String
+  departureDate  DateTime
+  departureTime  String
+  price          Int
+  availableSeats Int
+  status         TripStatus @default(SCHEDULED)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  route        Route         @relation(fields: [routeId], references: [id])
+  vehicle      Vehicle       @relation(fields: [vehicleId], references: [id])
+  reservations Reservation[]
+
+  @@index([routeId])
+  @@index([vehicleId])
+  @@index([departureDate])
+}
+
+model Seat {
+  id          String   @id @default(uuid())
+  vehicleId   String
+  seatNumber  String
+  type        String   @default("STANDARD")
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vehicle      Vehicle       @relation(fields: [vehicleId], references: [id])
+  reservations Reservation[]
+
+  @@unique([vehicleId, seatNumber])
+  @@index([vehicleId])
+}
+
+model Reservation {
+  id              String            @id @default(uuid())
+  userId          String
+  tripId          String
+  seatId          String
+  reservationCode String            @unique
+  status          ReservationStatus @default(PENDING)
+  totalAmount     Int
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id])
+  trip    Trip     @relation(fields: [tripId], references: [id])
+  seat    Seat     @relation(fields: [seatId], references: [id])
+  payment Payment?
+  ticket  Ticket?
+
+  @@index([userId])
+  @@index([tripId])
+  @@index([reservationCode])
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  reservationId String        @unique
+  amount        Int
+  method        PaymentMethod
+  transactionId String?       @unique
+  status        PaymentStatus @default(PENDING)
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  reservation Reservation @relation(fields: [reservationId], references: [id])
+
+  @@index([reservationId])
+  @@index([transactionId])
+}
+
+model Ticket {
+  id            String   @id @default(uuid())
+  reservationId String   @unique
+  ticketCode    String   @unique
+  qrCode        String   @unique
+  pdfUrl        String?
+  isUsed        Boolean  @default(false)
+  issuedAt      DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  reservation Reservation        @relation(fields: [reservationId], references: [id])
+  validations TicketValidation[]
+
+  @@index([ticketCode])
+  @@index([qrCode])
+}
+
+model TicketValidation {
+  id          String           @id @default(uuid())
+  ticketId    String
+  agentId     String
+  validatedAt DateTime         @default(now())
+  status      ValidationStatus
+  reason      String?
+
+  ticket Ticket @relation(fields: [ticketId], references: [id])
+  agent  User   @relation(fields: [agentId], references: [id])
+
+  @@index([ticketId])
+  @@index([agentId])
+}
+
+model Notification {
+  id      String              @id @default(uuid())
+  userId  String
+  type    String
+  channel NotificationChannel
+  content String
+  sentAt  DateTime?
+  status  String              @default("PENDING")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}

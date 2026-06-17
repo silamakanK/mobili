@@ -1,0 +1,209 @@
+@startuml
+title Mobili - Diagramme de classes
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F8FAFC
+  BorderColor #334155
+  ArrowColor #334155
+}
+hide circle
+
+class Role {
+  +id: UUID
+  +name: RoleName
+  +description: String
+  +permissions: JSON
+  +createdAt: DateTime
+}
+
+class User {
+  +id: UUID
+  +firstName: String
+  +lastName: String
+  +email: String
+  +phone: String
+  +passwordHash: String
+  +status: UserStatus
+  +lastLoginAt: DateTime
+  +createdAt: DateTime
+  +authenticate(password): Boolean
+}
+
+class Company {
+  +id: UUID
+  +name: String
+  +legalName: String
+  +phone: String
+  +email: String
+  +address: String
+  +status: CompanyStatus
+  +createdAt: DateTime
+}
+
+class Vehicle {
+  +id: UUID
+  +registrationNumber: String
+  +model: String
+  +capacity: Integer
+  +status: VehicleStatus
+  +createdAt: DateTime
+}
+
+class Route {
+  +id: UUID
+  +originCity: String
+  +destinationCity: String
+  +distanceKm: Decimal
+  +estimatedDurationMin: Integer
+  +status: RouteStatus
+}
+
+class Trip {
+  +id: UUID
+  +departureAt: DateTime
+  +arrivalAt: DateTime
+  +basePrice: Decimal
+  +availableSeats: Integer
+  +status: TripStatus
+  +isBookable(): Boolean
+}
+
+class Seat {
+  +id: UUID
+  +seatNumber: String
+  +type: SeatType
+  +status: SeatStatus
+}
+
+class Reservation {
+  +id: UUID
+  +reference: String
+  +status: ReservationStatus
+  +reservedAt: DateTime
+  +expiresAt: DateTime
+  +totalAmount: Decimal
+  +confirm(): void
+  +cancel(): void
+}
+
+class Payment {
+  +id: UUID
+  +provider: PaymentProvider
+  +method: PaymentMethod
+  +externalReference: String
+  +amount: Decimal
+  +currency: String
+  +status: PaymentStatus
+  +paidAt: DateTime
+  +confirm(): void
+}
+
+class Ticket {
+  +id: UUID
+  +ticketNumber: String
+  +qrCodeValue: String
+  +pdfUrl: String
+  +issuedAt: DateTime
+  +status: TicketStatus
+  +isValidForBoarding(): Boolean
+}
+
+class TicketValidation {
+  +id: UUID
+  +validatedAt: DateTime
+  +status: ValidationStatus
+  +failureReason: String
+  +deviceInfo: String
+}
+
+class Notification {
+  +id: UUID
+  +channel: NotificationChannel
+  +recipient: String
+  +subject: String
+  +content: Text
+  +status: NotificationStatus
+  +sentAt: DateTime
+}
+
+enum RoleName {
+  TRAVELER
+  CONTROL_AGENT
+  COMPANY_ADMIN
+  SUPER_ADMIN
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  INITIATED
+  PENDING
+  CONFIRMED
+  FAILED
+  REFUNDED
+}
+
+enum TicketStatus {
+  ISSUED
+  USED
+  CANCELLED
+  EXPIRED
+}
+
+enum ValidationStatus {
+  ACCEPTED
+  REJECTED
+}
+
+Role "1" <-- "0..*" User : has
+RoleName .. Role
+
+Company "1" o-- "0..*" Vehicle : owns
+Company "1" o-- "0..*" Route : operates
+Company "1" o-- "0..*" User : employs/administers
+Route "1" o-- "0..*" Trip : schedules
+Vehicle "1" o-- "1..*" Seat : contains
+Vehicle "1" <-- "0..*" Trip : assigned to
+
+User "1" <-- "0..*" Reservation : traveler
+Trip "1" <-- "0..*" Reservation : booked for
+Seat "1" <-- "0..*" Reservation : selected
+Reservation "1" *-- "1" Payment : payment
+Reservation "1" *-- "0..1" Ticket : generated ticket
+Ticket "1" o-- "0..1" TicketValidation : single validation
+User "1" <-- "0..*" TicketValidation : control agent
+
+User "1" <-- "0..*" Notification : recipient
+Reservation "0..1" <-- "0..*" Notification : about reservation
+Payment "0..1" <-- "0..*" Notification : about payment
+Ticket "0..1" <-- "0..*" Notification : about ticket
+
+ReservationStatus .. Reservation
+PaymentStatus .. Payment
+TicketStatus .. Ticket
+ValidationStatus .. TicketValidation
+
+note right of Reservation
+  Contraintes :
+  - reference unique
+  - un siège ne peut pas être confirmé
+    deux fois sur le même trajet
+  - expiration des réservations non payées
+end note
+
+note right of Ticket
+  Contraintes :
+  - qrCodeValue unique
+  - ticket généré après paiement confirmé
+  - validation acceptée au maximum une fois
+end note
+
+@enduml

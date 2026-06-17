@@ -1,0 +1,83 @@
+@startuml
+title Mobili - Séquence contrôle embarquement
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam sequence {
+  ArrowColor #334155
+  LifeLineBorderColor #64748B
+  LifeLineBackgroundColor #F8FAFC
+  ParticipantBorderColor #334155
+  ParticipantBackgroundColor #F8FAFC
+}
+
+actor "Agent de contrôle" as Inspector
+participant "React.js\nInterface agent" as AgentApp
+participant "Express API\nHTTPS + JWT" as API
+participant "RBAC + Validation\nMiddleware" as Security
+participant "Ticket Validation\nService" as ValidationService
+participant "Ticket\nService" as TicketService
+participant "Audit Log\nService" as AuditService
+database "PostgreSQL" as DB
+
+Inspector -> AgentApp : Ouvre départs du jour
+AgentApp -> API : GET /agent/departures/today\nJWT
+API -> Security : Vérifier rôle CONTROL_AGENT
+Security --> API : Accès autorisé
+API -> DB : Lire trajets du jour assignés
+DB --> API : Départs du jour
+API --> AgentApp : Liste des départs
+
+Inspector -> AgentApp : Scanne QR code du billet
+AgentApp -> API : POST /ticket-validations/scan\nqrCodeValue + tripId
+API -> Security : Vérifier JWT + rôle + données
+Security --> API : Requête valide
+API -> ValidationService : validateQrCode(qrCodeValue, tripId, agentId)
+ValidationService -> DB : Rechercher ticket par QR code
+DB --> ValidationService : Ticket + réservation + trajet
+
+alt Billet valide et non utilisé
+  ValidationService -> TicketService : checkBoardingEligibility(ticket, tripId)
+  TicketService --> ValidationService : Eligible
+  ValidationService -> DB : Créer TicketValidation ACCEPTED
+  ValidationService -> DB : Mettre ticket USED
+  ValidationService -> AuditService : journaliser validation acceptée
+  AuditService -> DB : Enregistrer log sécurité
+  ValidationService --> API : Validation acceptée
+  API --> AgentApp : 200 OK billet accepté
+  AgentApp --> Inspector : Affiche accès autorisé
+else QR code inconnu
+  ValidationService -> DB : Créer tentative REJECTED\nreason=UNKNOWN_QR_CODE
+  ValidationService -> AuditService : journaliser refus
+  AuditService -> DB : Enregistrer log sécurité
+  ValidationService --> API : Billet introuvable
+  API --> AgentApp : 404 billet invalide
+  AgentApp --> Inspector : Refuser embarquement
+else Billet déjà utilisé
+  ValidationService -> DB : Créer tentative REJECTED\nreason=ALREADY_USED
+  ValidationService -> AuditService : journaliser refus
+  AuditService -> DB : Enregistrer log sécurité
+  ValidationService --> API : Billet déjà validé
+  API --> AgentApp : 409 billet déjà utilisé
+  AgentApp --> Inspector : Refuser embarquement
+else Trajet non correspondant ou billet annulé
+  ValidationService -> DB : Créer tentative REJECTED\nreason=INVALID_TRIP_OR_STATUS
+  ValidationService -> AuditService : journaliser refus
+  AuditService -> DB : Enregistrer log sécurité
+  ValidationService --> API : Billet non éligible
+  API --> AgentApp : 422 billet refusé
+  AgentApp --> Inspector : Refuser embarquement
+end
+
+opt Recherche manuelle
+  Inspector -> AgentApp : Saisit référence billet / téléphone
+  AgentApp -> API : GET /tickets/search?reference|phone\nJWT
+  API -> Security : Vérifier rôle CONTROL_AGENT
+  API -> ValidationService : searchTicket(criteria)
+  ValidationService -> DB : Rechercher billet
+  DB --> ValidationService : Résultat de recherche
+  ValidationService --> API : Détails billet
+  API --> AgentApp : Affiche résultat
+end
+
+@enduml

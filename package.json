@@ -1,0 +1,11 @@
+{
+  "name": "mobili-root",
+  "private": true,
+  "description": "Mobili monorepo root — Git hooks only",
+  "scripts": {
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}

@@ -1,0 +1,90 @@
+@startuml
+title Mobili - Séquence parcours voyageur
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam sequence {
+  ArrowColor #334155
+  LifeLineBorderColor #64748B
+  LifeLineBackgroundColor #F8FAFC
+  ParticipantBorderColor #334155
+  ParticipantBackgroundColor #F8FAFC
+}
+
+actor "Voyageur" as Traveler
+participant "React.js\nResponsive Web App" as Frontend
+participant "Express API\nHTTPS + JWT" as API
+participant "RBAC + Validation\nMiddleware" as Security
+participant "Trip Search\nService" as TripService
+participant "Reservation\nService" as ReservationService
+participant "Payment\nService" as PaymentService
+participant "PayDunya / Mobile Money" as PaymentGateway
+participant "Ticket Service\nPDF + QR" as TicketService
+participant "Notification Service\nSMS / Email" as NotificationService
+database "PostgreSQL" as DB
+
+Traveler -> Frontend : Saisit origine, destination, date
+Frontend -> API : GET /trips?origin&destination&date
+API -> Security : Valider données d'entrée
+Security --> API : Données valides
+API -> TripService : searchTrips(criteria)
+TripService -> DB : Lire trajets, compagnies, prix, sièges
+DB --> TripService : Offres disponibles
+TripService --> API : Liste d'offres comparables
+API --> Frontend : 200 OK offres
+Frontend --> Traveler : Affiche compagnies, horaires, prix
+
+Traveler -> Frontend : Sélectionne offre et siège
+Frontend -> API : POST /reservations\nJWT + tripId + seatId
+API -> Security : Vérifier JWT + rôle TRAVELER
+Security --> API : Accès autorisé
+API -> ReservationService : createPendingReservation()
+ReservationService -> DB : Verrouiller disponibilité siège
+DB --> ReservationService : Siège disponible
+ReservationService -> DB : Créer réservation PENDING
+ReservationService --> API : Réservation temporaire
+API --> Frontend : 201 Created reservationRef
+
+Traveler -> Frontend : Choisit moyen de paiement
+Frontend -> API : POST /payments\nreservationRef + method
+API -> Security : Vérifier JWT + validation données
+Security --> API : Accès autorisé
+API -> PaymentService : initiatePayment(reservation)
+PaymentService -> PaymentGateway : Créer transaction
+PaymentGateway --> PaymentService : paymentUrl / paymentToken
+PaymentService -> DB : Enregistrer paiement INITIATED
+PaymentService --> API : Instructions paiement
+API --> Frontend : Redirection / widget paiement
+Frontend -> PaymentGateway : Paiement Mobile Money / PayDunya
+
+alt Paiement confirmé
+  PaymentGateway -> API : Webhook paiement confirmé
+  API -> Security : Vérifier signature webhook
+  Security --> API : Signature valide
+  API -> PaymentService : confirmPayment(externalReference)
+  PaymentService -> DB : Mettre paiement CONFIRMED
+  PaymentService -> ReservationService : confirmReservation()
+  ReservationService -> DB : Mettre réservation CONFIRMED
+  PaymentService -> TicketService : generateTicket(reservation)
+  TicketService -> DB : Lire données billet
+  TicketService -> TicketService : Générer QR code unique
+  TicketService -> TicketService : Générer PDF e-ticket
+  TicketService -> DB : Créer ticket ISSUED
+  TicketService -> NotificationService : notifyTicketIssued()
+  NotificationService -> DB : Enregistrer notification
+  NotificationService -> Traveler : SMS / email avec lien e-ticket
+  Traveler -> Frontend : Télécharge e-ticket
+  Frontend -> API : GET /tickets/{id}/pdf\nJWT
+  API -> Security : Vérifier propriétaire ou rôle autorisé
+  API --> Frontend : PDF e-ticket
+else Paiement échoué ou expiré
+  PaymentGateway -> API : Webhook paiement échoué
+  API -> PaymentService : failPayment()
+  PaymentService -> DB : Mettre paiement FAILED
+  PaymentService -> ReservationService : releaseSeat()
+  ReservationService -> DB : Annuler réservation / libérer siège
+  API -> NotificationService : notifier échec paiement
+  NotificationService -> Traveler : SMS / email d'échec
+end
+
+@enduml

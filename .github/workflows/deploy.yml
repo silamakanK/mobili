@@ -1,0 +1,22 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy backend to Render
+        run: |
+          HOOK=${{ github.ref == 'refs/heads/main' && secrets.RENDER_DEPLOY_HOOK_BACKEND_PROD || secrets.RENDER_DEPLOY_HOOK_BACKEND_STAGING }}
+          curl -s "$HOOK"
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vercel deploys automatically on push
+        run: echo "Frontend déployé par Vercel via GitHub integration"

@@ -1,0 +1,139 @@
+@startuml
+title Mobili - Diagramme de cas d'utilisation
+
+left to right direction
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor #F8FAFC
+  BorderColor #334155
+  ArrowColor #334155
+}
+skinparam actor {
+  BorderColor #334155
+  FontColor #0F172A
+}
+
+actor "Voyageur" as Traveler
+actor "Agent de contrôle" as Inspector
+actor "Administrateur\ncompagnie" as CompanyAdmin
+actor "Super administrateur\nMobili" as SuperAdmin
+actor "Service de paiement\nPayDunya / Orange Money\nWave / Moov Money" as PaymentProvider
+actor "Service de notification\nSMS / Email" as NotificationProvider
+
+rectangle "Plateforme web responsive Mobili" as Mobili {
+  package "Espace voyageur" {
+    usecase "Créer un compte" as UC_Register
+    usecase "Se connecter" as UC_Login
+    usecase "Rechercher un trajet" as UC_SearchTrip
+    usecase "Comparer les offres" as UC_CompareOffers
+    usecase "Réserver un siège" as UC_BookSeat
+    usecase "Effectuer un paiement" as UC_Pay
+    usecase "Télécharger e-ticket PDF" as UC_DownloadTicket
+    usecase "Consulter historique\nréservations" as UC_ViewHistory
+  }
+
+  package "Espace compagnie" {
+    usecase "Gérer les lignes" as UC_ManageRoutes
+    usecase "Gérer les trajets" as UC_ManageTrips
+    usecase "Gérer les véhicules" as UC_ManageVehicles
+    usecase "Gérer les sièges" as UC_ManageSeats
+    usecase "Gérer les agents" as UC_ManageAgents
+    usecase "Consulter les réservations" as UC_ViewReservations
+  }
+
+  package "Contrôle embarquement" {
+    usecase "Consulter les départs\ndu jour" as UC_TodayDepartures
+    usecase "Scanner un QR code" as UC_ScanQr
+    usecase "Rechercher un billet\nmanuellement" as UC_SearchTicket
+    usecase "Vérifier un billet" as UC_CheckTicket
+    usecase "Valider un billet" as UC_ValidateTicket
+    usecase "Refuser billet invalide\nou déjà utilisé" as UC_RejectTicket
+  }
+
+  package "Administration Mobili" {
+    usecase "Gérer les compagnies\npartenaires" as UC_ManageCompanies
+    usecase "Gérer les utilisateurs" as UC_ManageUsers
+    usecase "Superviser les transactions" as UC_MonitorTransactions
+    usecase "Consulter statistiques\nglobales" as UC_GlobalStats
+  }
+
+  package "Services internes" {
+    usecase "Authentifier par JWT" as UC_Jwt
+    usecase "Contrôler les accès RBAC" as UC_Rbac
+    usecase "Générer PDF + QR code" as UC_GenerateTicket
+    usecase "Envoyer notification" as UC_SendNotification
+    usecase "Journaliser les actions" as UC_LogAction
+  }
+}
+
+Traveler --> UC_Register
+Traveler --> UC_Login
+Traveler --> UC_SearchTrip
+Traveler --> UC_CompareOffers
+Traveler --> UC_BookSeat
+Traveler --> UC_Pay
+Traveler --> UC_DownloadTicket
+Traveler --> UC_ViewHistory
+
+CompanyAdmin --> UC_ManageRoutes
+CompanyAdmin --> UC_ManageTrips
+CompanyAdmin --> UC_ManageVehicles
+CompanyAdmin --> UC_ManageSeats
+CompanyAdmin --> UC_ManageAgents
+CompanyAdmin --> UC_ViewReservations
+
+Inspector --> UC_TodayDepartures
+Inspector --> UC_ScanQr
+Inspector --> UC_SearchTicket
+Inspector --> UC_CheckTicket
+Inspector --> UC_ValidateTicket
+Inspector --> UC_RejectTicket
+
+SuperAdmin --> UC_ManageCompanies
+SuperAdmin --> UC_ManageUsers
+SuperAdmin --> UC_MonitorTransactions
+SuperAdmin --> UC_GlobalStats
+
+UC_Login ..> UC_Jwt : <<include>>
+UC_BookSeat ..> UC_Rbac : <<include>>
+UC_Pay ..> UC_Rbac : <<include>>
+UC_DownloadTicket ..> UC_Rbac : <<include>>
+UC_ManageRoutes ..> UC_Rbac : <<include>>
+UC_ManageTrips ..> UC_Rbac : <<include>>
+UC_ManageVehicles ..> UC_Rbac : <<include>>
+UC_ManageSeats ..> UC_Rbac : <<include>>
+UC_ManageAgents ..> UC_Rbac : <<include>>
+UC_CheckTicket ..> UC_Rbac : <<include>>
+UC_ManageCompanies ..> UC_Rbac : <<include>>
+UC_ManageUsers ..> UC_Rbac : <<include>>
+
+UC_SearchTrip ..> UC_CompareOffers : <<extend>>
+UC_BookSeat ..> UC_Pay : <<include>>
+UC_Pay ..> UC_GenerateTicket : <<include>>
+UC_GenerateTicket ..> UC_SendNotification : <<include>>
+UC_ScanQr ..> UC_CheckTicket : <<include>>
+UC_SearchTicket ..> UC_CheckTicket : <<include>>
+UC_CheckTicket ..> UC_ValidateTicket : <<extend>>
+UC_CheckTicket ..> UC_RejectTicket : <<extend>>
+
+PaymentProvider --> UC_Pay
+NotificationProvider --> UC_SendNotification
+
+UC_Register ..> UC_LogAction : <<include>>
+UC_Pay ..> UC_LogAction : <<include>>
+UC_ValidateTicket ..> UC_LogAction : <<include>>
+UC_RejectTicket ..> UC_LogAction : <<include>>
+UC_ManageCompanies ..> UC_LogAction : <<include>>
+
+note right of Mobili
+  Sécurité transversale :
+  - HTTPS obligatoire
+  - JWT pour sessions API
+  - RBAC par rôle
+  - Validation des données
+  - Journalisation métier et sécurité
+end note
+
+@enduml

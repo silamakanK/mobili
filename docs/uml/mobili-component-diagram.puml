@@ -1,0 +1,135 @@
+@startuml
+title Mobili - Diagramme de composants d'architecture globale
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam component {
+  BackgroundColor #F8FAFC
+  BorderColor #334155
+  ArrowColor #334155
+}
+skinparam database {
+  BackgroundColor #F8FAFC
+  BorderColor #334155
+}
+left to right direction
+
+actor "Voyageur" as Traveler
+actor "Administrateur\ncompagnie" as CompanyAdmin
+actor "Agent de contrôle" as Inspector
+actor "Super administrateur" as SuperAdmin
+
+cloud "Internet\nHTTPS" as Internet
+
+package "Client Web Responsive" {
+  [React.js App] as ReactApp
+  [Espace voyageur] as TravelerUI
+  [Espace compagnie] as CompanyUI
+  [Interface contrôle] as ControlUI
+  [Console super admin] as SuperAdminUI
+}
+
+package "Back-end Node.js / Express" {
+  [API REST Express] as API
+  [JWT Authentication] as Auth
+  [RBAC Authorization] as RBAC
+  [Input Validation] as Validation
+  [Audit Logging] as Logging
+
+  package "Domain Services" {
+    [User Service] as UserService
+    [Company Service] as CompanyService
+    [Trip Service] as TripService
+    [Reservation Service] as ReservationService
+    [Payment Service] as PaymentService
+    [Ticket Service\nPDF + QR code] as TicketService
+    [Notification Service] as NotificationService
+    [Statistics Service] as StatisticsService
+  }
+}
+
+database "PostgreSQL" as PostgreSQL {
+  [users, roles]
+  [companies, vehicles, routes, trips, seats]
+  [reservations, payments, tickets]
+  [ticket_validations, notifications, audit_logs]
+}
+
+cloud "Payment Providers" as Providers {
+  [PayDunya] as PayDunya
+  [Orange Money] as OrangeMoney
+  [Wave] as Wave
+  [Moov Money] as MoovMoney
+}
+
+cloud "Notification Providers" as NotificationProviders {
+  [SMS Gateway] as SmsGateway
+  [Email Service] as EmailService
+}
+
+component "Object Storage\nPDF tickets" as ObjectStorage
+component "Monitoring / Logs" as Monitoring
+
+Traveler --> Internet
+CompanyAdmin --> Internet
+Inspector --> Internet
+SuperAdmin --> Internet
+Internet --> ReactApp
+
+ReactApp --> TravelerUI
+ReactApp --> CompanyUI
+ReactApp --> ControlUI
+ReactApp --> SuperAdminUI
+ReactApp --> API : REST/JSON over HTTPS
+
+API --> Auth : Verify JWT
+API --> RBAC : Enforce roles
+API --> Validation : Validate payloads
+API --> Logging : Audit requests
+
+API --> UserService
+API --> CompanyService
+API --> TripService
+API --> ReservationService
+API --> PaymentService
+API --> TicketService
+API --> NotificationService
+API --> StatisticsService
+
+UserService --> PostgreSQL
+CompanyService --> PostgreSQL
+TripService --> PostgreSQL
+ReservationService --> PostgreSQL
+PaymentService --> PostgreSQL
+TicketService --> PostgreSQL
+NotificationService --> PostgreSQL
+StatisticsService --> PostgreSQL
+Logging --> PostgreSQL
+
+PaymentService --> PayDunya : API paiement
+PaymentService --> OrangeMoney : API mobile money
+PaymentService --> Wave : API mobile money
+PaymentService --> MoovMoney : API mobile money
+PayDunya --> API : Webhook signé
+OrangeMoney --> API : Webhook signé
+Wave --> API : Webhook signé
+MoovMoney --> API : Webhook signé
+
+TicketService --> ObjectStorage : Stocker PDF
+NotificationService --> SmsGateway : SMS ticket/statut
+NotificationService --> EmailService : Email ticket/statut
+Logging --> Monitoring
+
+note right of API
+  Sécurité :
+  - HTTPS
+  - JWT
+  - RBAC
+  - validation des données
+  - webhooks signés
+  - journalisation
+end note
+
+@enduml
