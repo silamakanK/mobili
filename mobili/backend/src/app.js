@@ -39,9 +39,4 @@ app.use((err, _req, res, _next) => {
   res.status(status).json({ error: err.message || 'Erreur interne du serveur.' })
 })
 
-const PORT = process.env.PORT || 3000
-app.listen(PORT, () => {
-  logger.info(`Mobili API démarré sur le port ${PORT}`)
-})
-
 module.exports = app
