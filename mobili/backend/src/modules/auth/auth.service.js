@@ -58,7 +58,7 @@ async function login({ email, password }) {
       companyId: true,
     },
   })
-  const token = signToken({ id: user.id, role: user.role })
+  const token = signToken({ id: user.id, role: user.role, companyId: user.companyId })
   return { user, token }
 }
 
