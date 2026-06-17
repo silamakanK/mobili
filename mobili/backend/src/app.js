@@ -33,8 +33,10 @@ app.use('/api/stats', require('./modules/stats/stats.router'))
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
 
 app.use((err, _req, res, _next) => {
-  logger.error(err)
-  res.status(500).json({ error: 'Erreur interne du serveur.' })
+  const status = err.status || 500
+  if (status >= 500) logger.error(err)
+  else logger.error({ status, message: err.message, stack: err.stack })
+  res.status(status).json({ error: err.message || 'Erreur interne du serveur.' })
 })
 
 const PORT = process.env.PORT || 3000
