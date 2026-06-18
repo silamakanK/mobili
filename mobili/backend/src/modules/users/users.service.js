@@ -116,4 +116,76 @@ async function deleteUser(id, callerUser) {
   return prisma.user.update({ where: { id }, data: { isActive: false } })
 }
 
-module.exports = { listUsers, createAgent, updateUser, deleteUser }
+async function createManager(callerUser, data) {
+  if (callerUser.role !== 'SUPER_ADMIN') {
+    const err = new Error('Accès non autorisé.')
+    err.status = 403
+    throw err
+  }
+
+  const existing = await prisma.user.findFirst({
+    where: { OR: [{ email: data.email }, { phone: data.phone }] },
+  })
+  if (existing) {
+    const field = existing.email === data.email ? 'email' : 'téléphone'
+    const err = new Error(`Ce ${field} est déjà utilisé.`)
+    err.status = 409
+    throw err
+  }
+
+  const company = await prisma.company.findUnique({ where: { id: data.companyId } })
+  if (!company) {
+    const err = new Error('Compagnie introuvable.')
+    err.status = 404
+    throw err
+  }
+
+  const passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS)
+  return prisma.user.create({
+    data: {
+      firstName: data.firstName,
+      lastName: data.lastName,
+      email: data.email,
+      phone: data.phone,
+      passwordHash,
+      role: 'ADMIN_COMPANY',
+      companyId: data.companyId,
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      phone: true,
+      role: true,
+      companyId: true,
+    },
+  })
+}
+
+async function listManagers({ companyId, page = 1, limit = 20 } = {}) {
+  const skip = (page - 1) * limit
+  const where = { role: 'ADMIN_COMPANY', ...(companyId ? { companyId } : {}) }
+  const [managers, total] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        role: true,
+        isActive: true,
+        companyId: true,
+      },
+      orderBy: { lastName: 'asc' },
+      skip,
+      take: limit,
+    }),
+    prisma.user.count({ where }),
+  ])
+  return { managers, total, page, limit }
+}
+
+module.exports = { listUsers, createAgent, createManager, listManagers, updateUser, deleteUser }

@@ -80,3 +80,98 @@ describe('PUT /api/users/:id', () => {
     expect(res.body.data.isActive).toBe(false)
   })
 })
+
+describe('POST /api/users/managers', () => {
+  let managerId
+
+  afterAll(async () => {
+    if (managerId) await prisma.user.delete({ where: { id: managerId } }).catch(() => {})
+  })
+
+  it('crée un gérant (SUPER_ADMIN)', async () => {
+    const res = await request(app)
+      .post('/api/users/managers')
+      .set('Authorization', `Bearer ${makeToken('SUPER_ADMIN')}`)
+      .send({
+        firstName: 'Aminata',
+        lastName: 'Diallo',
+        email: `manager.${Date.now()}@test.ml`,
+        phone: `+2238${Date.now().toString().slice(-7)}`,
+        password: 'ManagerPass123',
+        companyId,
+      })
+    expect(res.status).toBe(201)
+    managerId = res.body.data.id
+    expect(res.body.data.role).toBe('ADMIN_COMPANY')
+    expect(res.body.data.companyId).toBe(companyId)
+  })
+
+  it('refuse si ADMIN_COMPANY tente de créer un gérant (403)', async () => {
+    const res = await request(app)
+      .post('/api/users/managers')
+      .set('Authorization', `Bearer ${makeToken('ADMIN_COMPANY', companyId)}`)
+      .send({
+        firstName: 'Test',
+        lastName: 'User',
+        email: `forbidden.${Date.now()}@test.ml`,
+        phone: `+2239${Date.now().toString().slice(-7)}`,
+        password: 'Pass12345',
+        companyId,
+      })
+    expect(res.status).toBe(403)
+  })
+
+  it('refuse sans auth (401)', async () => {
+    const res = await request(app).post('/api/users/managers').send({})
+    expect(res.status).toBe(401)
+  })
+
+  it('retourne 404 si companyId inexistant', async () => {
+    const res = await request(app)
+      .post('/api/users/managers')
+      .set('Authorization', `Bearer ${makeToken('SUPER_ADMIN')}`)
+      .send({
+        firstName: 'Inconnu',
+        lastName: 'Test',
+        email: `unknown.${Date.now()}@test.ml`,
+        phone: `+2231${Date.now().toString().slice(-7)}`,
+        password: 'Pass12345',
+        companyId: '00000000-0000-0000-0000-000000000000',
+      })
+    expect(res.status).toBe(404)
+  })
+
+  it('retourne 400 si payload invalide', async () => {
+    const res = await request(app)
+      .post('/api/users/managers')
+      .set('Authorization', `Bearer ${makeToken('SUPER_ADMIN')}`)
+      .send({ firstName: 'X' })
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('GET /api/users/managers', () => {
+  it('liste les gérants (SUPER_ADMIN)', async () => {
+    const res = await request(app)
+      .get('/api/users/managers')
+      .set('Authorization', `Bearer ${makeToken('SUPER_ADMIN')}`)
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body.data.managers)).toBe(true)
+    res.body.data.managers.forEach((m) => expect(m.role).toBe('ADMIN_COMPANY'))
+  })
+
+  it('filtre par companyId', async () => {
+    const res = await request(app)
+      .get(`/api/users/managers?companyId=${companyId}`)
+      .set('Authorization', `Bearer ${makeToken('SUPER_ADMIN')}`)
+    expect(res.status).toBe(200)
+    res.body.data.managers.forEach((m) => expect(m.companyId).toBe(companyId))
+  })
+
+  it('refuse si ADMIN_COMPANY (403)', async () => {
+    const res = await request(app)
+      .get('/api/users/managers')
+      .set('Authorization', `Bearer ${makeToken('ADMIN_COMPANY', companyId)}`)
+    expect(res.status).toBe(403)
+  })
+})
