@@ -1,13 +1,22 @@
-require('dotenv').config()
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') })
 const express = require('express')
 const helmet = require('helmet')
 const cors = require('cors')
+const swaggerUi = require('swagger-ui-express')
+const swaggerSpec = require('./config/swagger')
 const { globalLimiter } = require('./middleware/rate-limit.middleware')
 const logger = require('./config/logger')
 
 const app = express()
 
 app.use(helmet())
+app.use('/api/docs', (_req, res, next) => {
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+  )
+  next()
+})
 app.use(
   cors({
     origin: process.env.FRONTEND_URL,
@@ -17,6 +26,8 @@ app.use(
 )
 app.use(express.json())
 app.use(globalLimiter)
+
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec))
 
 app.use('/api/auth', require('./modules/auth/auth.router'))
 app.use('/api/trips', require('./modules/trips/trips.router'))
@@ -33,13 +44,10 @@ app.use('/api/stats', require('./modules/stats/stats.router'))
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
 
 app.use((err, _req, res, _next) => {
-  logger.error(err)
-  res.status(500).json({ error: 'Erreur interne du serveur.' })
-})
-
-const PORT = process.env.PORT || 3000
-app.listen(PORT, () => {
-  logger.info(`Mobili API démarré sur le port ${PORT}`)
+  const status = err.status || 500
+  if (status >= 500) logger.error(err)
+  else logger.error({ status, message: err.message, stack: err.stack })
+  res.status(status).json({ error: err.message || 'Erreur interne du serveur.' })
 })
 
 module.exports = app

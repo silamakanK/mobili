@@ -2,11 +2,11 @@
   "name": "mobili-backend",
   "version": "1.0.0",
   "description": "Mobili — API REST Node.js/Express",
-  "main": "src/app.js",
+  "main": "src/server.js",
   "scripts": {
-    "dev": "nodemon src/app.js",
-    "start": "node src/app.js",
-    "test": "jest --coverage",
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "test": "NODE_ENV=test jest --coverage --runInBand --forceExit",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/",
@@ -15,6 +15,7 @@
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
+    "db:seed": "node prisma/seed.js",
     "prepare": "echo 'Run npm install at project root for husky'"
   },
   "dependencies": {
@@ -27,9 +28,12 @@
     "express-rate-limit": "^7.4.1",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^9.0.1",
     "pdfkit": "^0.15.1",
     "pg": "^8.13.3",
     "qrcode": "^1.5.4",
+    "swagger-jsdoc": "^6.3.0",
+    "swagger-ui-express": "^5.0.1",
     "uuid": "^11.0.3",
     "winston": "^3.17.0",
     "zod": "^3.23.8"

@@ -1,0 +1,6 @@
+{
+  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
+  "env": {
+    "VITE_API_URL": "https://mobili-api.onrender.com"
+  }
+}
