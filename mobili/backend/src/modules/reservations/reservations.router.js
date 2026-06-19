@@ -1,7 +1,18 @@
 const { Router } = require('express')
+const { authenticate } = require('../../middleware/auth.middleware')
+const { authorize } = require('../../middleware/rbac.middleware')
+const {
+  createReservationHandler,
+  getMyReservationsHandler,
+  getReservationByIdHandler,
+  cancelReservationHandler,
+} = require('./reservations.controller')
 
 const router = Router()
 
-// TODO: implémenter les routes
+router.post('/', authenticate, authorize('VOYAGEUR'), createReservationHandler)
+router.get('/me', authenticate, getMyReservationsHandler)
+router.get('/:id', authenticate, getReservationByIdHandler)
+router.delete('/:id', authenticate, authorize('VOYAGEUR'), cancelReservationHandler)
 
 module.exports = router
