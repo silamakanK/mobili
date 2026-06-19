@@ -12,7 +12,6 @@ const TEST_USER = {
 
 afterAll(async () => {
   await prisma.user.deleteMany({ where: { email: { startsWith: 'test.auth.' } } })
-  await prisma.$disconnect()
 })
 
 describe('POST /api/auth/register', () => {

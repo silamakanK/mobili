@@ -2,12 +2,21 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') })
 const express = require('express')
 const helmet = require('helmet')
 const cors = require('cors')
+const swaggerUi = require('swagger-ui-express')
+const swaggerSpec = require('./config/swagger')
 const { globalLimiter } = require('./middleware/rate-limit.middleware')
 const logger = require('./config/logger')
 
 const app = express()
 
 app.use(helmet())
+app.use('/api/docs', (_req, res, next) => {
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+  )
+  next()
+})
 app.use(
   cors({
     origin: process.env.FRONTEND_URL,
@@ -17,6 +26,8 @@ app.use(
 )
 app.use(express.json())
 app.use(globalLimiter)
+
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec))
 
 app.use('/api/auth', require('./modules/auth/auth.router'))
 app.use('/api/trips', require('./modules/trips/trips.router'))
