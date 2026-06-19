@@ -21,6 +21,41 @@ const USERS = [
   },
 ]
 
+const COMPANY_ADMINS = [
+  {
+    firstName: 'Moussa',
+    lastName: 'Diarra',
+    email: 'admin@diarra-transport.ml',
+    phone: '+22370000002',
+    password: process.env.SEED_ADMIN_PASSWORD,
+    companyName: 'Diarra Transport',
+  },
+  {
+    firstName: 'Fatoumata',
+    lastName: 'Koné',
+    email: 'admin@tilemsi.ml',
+    phone: '+22370000003',
+    password: process.env.SEED_ADMIN_PASSWORD,
+    companyName: 'Tilemsi Voyages',
+  },
+  {
+    firstName: 'Ibrahim',
+    lastName: 'Coulibaly',
+    email: 'admin@sonef.ml',
+    phone: '+22370000004',
+    password: process.env.SEED_ADMIN_PASSWORD,
+    companyName: 'Sonef Transport',
+  },
+  {
+    firstName: 'Aminata',
+    lastName: 'Traoré',
+    email: 'admin@benso.ml',
+    phone: '+22370000005',
+    password: process.env.SEED_ADMIN_PASSWORD,
+    companyName: 'Benso Express',
+  },
+]
+
 const COMPANIES = [
   {
     name: 'Diarra Transport',
@@ -153,17 +188,49 @@ async function seedUsers() {
   }
 }
 
+async function seedCompanyAdmins(companyMap) {
+  console.log('\n🏢 Gérants de compagnies...')
+  for (const a of COMPANY_ADMINS) {
+    const existing = await prisma.user.findUnique({ where: { email: a.email } })
+    if (existing) {
+      console.log(`  ⚠️  ${a.email} déjà existant — ignoré`)
+      continue
+    }
+    const company = companyMap[a.companyName]
+    if (!company) {
+      console.log(`  ⚠️  Compagnie "${a.companyName}" introuvable — ignoré`)
+      continue
+    }
+    const passwordHash = await bcrypt.hash(a.password, 12)
+    await prisma.user.create({
+      data: {
+        firstName: a.firstName,
+        lastName: a.lastName,
+        email: a.email,
+        phone: a.phone,
+        passwordHash,
+        role: 'ADMIN_COMPANY',
+        companyId: company.id,
+      },
+    })
+    console.log(`  ✅ ADMIN_COMPANY ${a.firstName} ${a.lastName} — ${a.companyName}`)
+  }
+}
+
 async function main() {
   console.log('🌱 Démarrage du seed...')
   await seedUsers()
   const dates = getDatesFromTodayToEndOfMonth()
   console.log(`📅 Création des trajets du ${dates[0].toLocaleDateString('fr-FR')} au ${dates[dates.length - 1].toLocaleDateString('fr-FR')} (${dates.length} jours)`)
 
+  const companyMap = {}
+
   for (const companyData of COMPANIES) {
     console.log(`\n🚌 Compagnie : ${companyData.name}`)
 
     const existing = await prisma.company.findUnique({ where: { name: companyData.name } })
     if (existing) {
+      companyMap[companyData.name] = existing
       console.log(`  ⚠️  Déjà existante — ignorée`)
       continue
     }
@@ -171,6 +238,7 @@ async function main() {
     const company = await prisma.company.create({
       data: { name: companyData.name, contactEmail: companyData.contactEmail, contactPhone: companyData.contactPhone },
     })
+    companyMap[companyData.name] = company
 
     const routes = await Promise.all(
       companyData.routes.map((r) =>
@@ -209,6 +277,8 @@ async function main() {
     }
     console.log(`  ✅ ${tripCount} trajets créés`)
   }
+
+  await seedCompanyAdmins(companyMap)
 
   const totalTrips = await prisma.trip.count()
   console.log(`\n✅ Seed terminé — ${totalTrips} trajets en base`)
