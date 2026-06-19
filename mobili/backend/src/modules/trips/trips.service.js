@@ -91,4 +91,126 @@ async function getTodayTrips(companyId) {
   })
 }
 
-module.exports = { searchTrips, getTripById, getTodayTrips }
+async function listCompanyTrips(companyId, { page = 1, limit = 20, from, to } = {}) {
+  const skip = (page - 1) * limit
+  const where = {
+    route: { companyId },
+    ...(from && to
+      ? {
+          departureDate: {
+            gte: new Date(`${from}T00:00:00.000Z`),
+            lte: new Date(`${to}T23:59:59.999Z`),
+          },
+        }
+      : {}),
+  }
+  const [trips, total] = await Promise.all([
+    prisma.trip.findMany({
+      where,
+      include: {
+        route: { select: { id: true, origin: true, destination: true } },
+        vehicle: { select: { id: true, registrationNumber: true, type: true, totalSeats: true } },
+        reservations: { where: { status: 'CONFIRMED' }, select: { id: true } },
+      },
+      orderBy: [{ departureDate: 'desc' }, { departureTime: 'asc' }],
+      skip,
+      take: limit,
+    }),
+    prisma.trip.count({ where }),
+  ])
+  return { trips, total, page, limit }
+}
+
+async function createTrip(user, data) {
+  const { routeId, vehicleId, departureDate, departureTime, price, availableSeats } = data
+
+  const route = await prisma.route.findUnique({ where: { id: routeId } })
+  if (!route) {
+    const err = new Error('Ligne introuvable.')
+    err.status = 404
+    throw err
+  }
+  if (user.role !== 'SUPER_ADMIN' && route.companyId !== user.companyId) {
+    const err = new Error('Accès non autorisé.')
+    err.status = 403
+    throw err
+  }
+
+  const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
+  if (!vehicle) {
+    const err = new Error('Véhicule introuvable.')
+    err.status = 404
+    throw err
+  }
+  if (user.role !== 'SUPER_ADMIN' && vehicle.companyId !== user.companyId) {
+    const err = new Error('Accès non autorisé.')
+    err.status = 403
+    throw err
+  }
+
+  return prisma.trip.create({
+    data: {
+      routeId,
+      vehicleId,
+      departureDate: new Date(`${departureDate}T00:00:00.000Z`),
+      departureTime,
+      price,
+      availableSeats: availableSeats ?? vehicle.totalSeats,
+      status: 'SCHEDULED',
+    },
+    include: {
+      route: { select: { origin: true, destination: true } },
+      vehicle: { select: { registrationNumber: true, type: true } },
+    },
+  })
+}
+
+async function updateTrip(id, user, data) {
+  const trip = await prisma.trip.findUnique({
+    where: { id },
+    include: { route: { select: { companyId: true } } },
+  })
+  if (!trip) {
+    const err = new Error('Trajet introuvable.')
+    err.status = 404
+    throw err
+  }
+  if (user.role !== 'SUPER_ADMIN' && trip.route.companyId !== user.companyId) {
+    const err = new Error('Accès non autorisé.')
+    err.status = 403
+    throw err
+  }
+  const updateData = { ...data }
+  if (data.departureDate) {
+    updateData.departureDate = new Date(`${data.departureDate}T00:00:00.000Z`)
+  }
+  return prisma.trip.update({ where: { id }, data: updateData })
+}
+
+async function cancelTrip(id, user) {
+  const trip = await prisma.trip.findUnique({
+    where: { id },
+    include: { route: { select: { companyId: true } } },
+  })
+  if (!trip) {
+    const err = new Error('Trajet introuvable.')
+    err.status = 404
+    throw err
+  }
+  if (user.role !== 'SUPER_ADMIN' && trip.route.companyId !== user.companyId) {
+    const err = new Error('Accès non autorisé.')
+    err.status = 403
+    throw err
+  }
+  return prisma.trip.update({ where: { id }, data: { status: 'CANCELLED' } })
+}
+
+module.exports = {
+  searchTrips,
+  getTripById,
+  getTodayTrips,
+  listCompanyTrips,
+  createTrip,
+  updateTrip,
+  cancelTrip,
+}
