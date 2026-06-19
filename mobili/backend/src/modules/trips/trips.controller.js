@@ -92,6 +92,15 @@ async function cancelTripHandler(req, res, next) {
   }
 }
 
+async function getPassengersHandler(req, res, next) {
+  try {
+    const result = await tripsService.getPassengers(req.params.id, req.user)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+}
+
 module.exports = {
   searchHandler,
   getByIdHandler,
@@ -100,4 +109,5 @@ module.exports = {
   createTripHandler,
   updateTripHandler,
   cancelTripHandler,
+  getPassengersHandler,
 }

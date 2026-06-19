@@ -1,6 +1,11 @@
 const request = require('supertest')
+const jwt = require('jsonwebtoken')
 const app = require('../../app')
 const prisma = require('../../config/prisma')
+
+function makeToken(role, companyId = null) {
+  return jwt.sign({ id: 'test-user-id', role, companyId }, process.env.JWT_SECRET || 'test')
+}
 
 let companyId, routeId, vehicleId, tripId
 
@@ -88,6 +93,49 @@ describe('GET /api/trips/:id', () => {
 
   it('retourne 404 pour un id inexistant', async () => {
     const res = await request(app).get('/api/trips/00000000-0000-0000-0000-000000000000')
+    expect(res.status).toBe(404)
+  })
+})
+
+describe('GET /api/trips/:id/passengers', () => {
+  it('retourne la liste des passagers (ADMIN_COMPANY)', async () => {
+    const res = await request(app)
+      .get(`/api/trips/${tripId}/passengers`)
+      .set('Authorization', `Bearer ${makeToken('ADMIN_COMPANY', companyId)}`)
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.data).toHaveProperty('trip')
+    expect(res.body.data).toHaveProperty('passengers')
+    expect(res.body.data).toHaveProperty('total')
+    expect(Array.isArray(res.body.data.passengers)).toBe(true)
+  })
+
+  it('retourne la liste des passagers (AGENT de la compagnie)', async () => {
+    const res = await request(app)
+      .get(`/api/trips/${tripId}/passengers`)
+      .set('Authorization', `Bearer ${makeToken('AGENT', companyId)}`)
+    expect(res.status).toBe(200)
+  })
+
+  it('refuse une autre compagnie (403)', async () => {
+    const res = await request(app)
+      .get(`/api/trips/${tripId}/passengers`)
+      .set(
+        'Authorization',
+        `Bearer ${makeToken('ADMIN_COMPANY', '00000000-0000-0000-0000-000000000000')}`
+      )
+    expect(res.status).toBe(403)
+  })
+
+  it('refuse sans token (401)', async () => {
+    const res = await request(app).get(`/api/trips/${tripId}/passengers`)
+    expect(res.status).toBe(401)
+  })
+
+  it('retourne 404 pour un trajet inexistant', async () => {
+    const res = await request(app)
+      .get('/api/trips/00000000-0000-0000-0000-000000000000/passengers')
+      .set('Authorization', `Bearer ${makeToken('SUPER_ADMIN')}`)
     expect(res.status).toBe(404)
   })
 })

@@ -205,6 +205,55 @@ async function cancelTrip(id, user) {
   return prisma.trip.update({ where: { id }, data: { status: 'CANCELLED' } })
 }
 
+async function getPassengers(id, user) {
+  const trip = await prisma.trip.findUnique({
+    where: { id },
+    include: { route: { select: { companyId: true, origin: true, destination: true } } },
+  })
+  if (!trip) {
+    const err = new Error('Trajet introuvable.')
+    err.status = 404
+    throw err
+  }
+  if (user.role !== 'SUPER_ADMIN' && trip.route.companyId !== user.companyId) {
+    const err = new Error('Accès non autorisé.')
+    err.status = 403
+    throw err
+  }
+
+  const reservations = await prisma.reservation.findMany({
+    where: { tripId: id, status: 'CONFIRMED' },
+    include: {
+      user: { select: { firstName: true, lastName: true, phone: true, email: true } },
+      seat: { select: { seatNumber: true, type: true } },
+      ticket: { select: { ticketCode: true, isUsed: true } },
+    },
+    orderBy: { seat: { seatNumber: 'asc' } },
+  })
+
+  return {
+    trip: {
+      id: trip.id,
+      origin: trip.route.origin,
+      destination: trip.route.destination,
+      departureDate: trip.departureDate,
+      departureTime: trip.departureTime,
+    },
+    total: reservations.length,
+    passengers: reservations.map((r) => ({
+      seat: r.seat.seatNumber,
+      seatType: r.seat.type,
+      firstName: r.user.firstName,
+      lastName: r.user.lastName,
+      phone: r.user.phone,
+      email: r.user.email,
+      reservationCode: r.reservationCode,
+      ticketCode: r.ticket?.ticketCode ?? null,
+      boarded: r.ticket?.isUsed ?? false,
+    })),
+  }
+}
+
 module.exports = {
   searchTrips,
   getTripById,
@@ -213,4 +262,5 @@ module.exports = {
   createTrip,
   updateTrip,
   cancelTrip,
+  getPassengers,
 }
