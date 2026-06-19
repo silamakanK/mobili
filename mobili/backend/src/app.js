@@ -17,9 +17,21 @@ app.use('/api/docs', (_req, res, next) => {
   )
   next()
 })
+const allowedOrigins = new Set(
+  [process.env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:3000']
+    .filter(Boolean)
+    .map((o) => o.replace(/\/$/, ''))
+)
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.has(origin.replace(/\/$/, ''))) {
+        callback(null, true)
+      } else {
+        callback(new Error(`CORS: origine non autorisée — ${origin}`))
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   })
