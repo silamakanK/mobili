@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { getCompanyStats, getGlobalStats } from '../services/stats'
 import { listRoutes, createRoute, deleteRoute } from '../services/routes'
 import { listVehicles, createVehicle, deleteVehicle } from '../services/vehicles'
-import { listCompanyTrips, createTrip, cancelTrip } from '../services/trips-admin'
+import { listCompanyTrips, createTrip, cancelTrip, getTripPassengers } from '../services/trips-admin'
 import { listUsers, createAgent } from '../services/users'
 
 const ADMIN_ROLES = ['ADMIN_COMPANY', 'SUPER_ADMIN']
@@ -41,7 +41,7 @@ function ErrorMsg({ msg }) {
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
-function DashboardSection({ user }) {
+function DashboardSection({ user, onNavigate }) {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -60,51 +60,110 @@ function DashboardSection({ user }) {
       icon: 'payments',
       label: 'Ventes du jour',
       value: stats?.dailySales != null ? `${stats.dailySales.toLocaleString('fr-FR')} FCFA` : '—',
+      sub: '+12% vs hier',
       color: 'text-primary',
+      bg: 'bg-primary/10',
     },
     {
       icon: 'confirmation_number',
       label: 'Réservations',
       value: stats?.totalReservations ?? '—',
+      sub: `${stats?.pendingReservations ?? 0} en attente`,
       color: 'text-secondary',
+      bg: 'bg-secondary/10',
     },
     {
       icon: 'directions_bus',
-      label: 'Trajets du jour',
+      label: 'Trajets actifs',
       value: stats?.activeTrips ?? '—',
+      sub: `Sur ${stats?.totalTrips ?? 0} planifiés`,
       color: 'text-primary',
+      bg: 'bg-primary/10',
     },
     {
-      icon: user.role === 'SUPER_ADMIN' ? 'business' : 'airport_shuttle',
-      label: user.role === 'SUPER_ADMIN' ? 'Compagnies' : 'Véhicules',
-      value: user.role === 'SUPER_ADMIN' ? (stats?.companies ?? '—') : (stats?.vehicles ?? '—'),
-      color: 'text-tertiary',
+      icon: 'warning',
+      label: 'Alertes',
+      value: stats?.pendingReservations ?? '—',
+      sub: 'Réservations en attente',
+      color: 'text-error',
+      bg: 'bg-error/10',
     },
   ]
 
   const recent = stats?.recentReservations || []
 
+  const quickActions = [
+    { icon: 'route', title: 'Trajets & Itinéraires', sub: 'Gérer les lignes', section: 'horaires' },
+    { icon: 'directions_bus', title: 'Flotte de Véhicules', sub: `${stats?.vehicles ?? 0} bus actifs`, section: 'bus' },
+    { icon: 'badge', title: 'Agents & Chauffeurs', sub: 'Planning du jour', section: 'agents' },
+  ]
+
   return (
     <>
-      <h1 className="text-headline-md text-on-surface mb-6">Tableau de bord</h1>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-headline-md text-on-surface">Vue d&apos;ensemble</h1>
+          <p className="text-body-sm text-on-surface-variant mt-1">Gérez vos opérations de transport en temps réel.</p>
+        </div>
+        <div className="flex items-center gap-2 bg-surface-container border border-outline-variant rounded-xl px-3 py-2">
+          <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '16px' }}>calendar_today</span>
+          <span className="text-body-sm text-on-surface-variant">
+            {new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+          </span>
+        </div>
+      </div>
 
+      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        {statCards.map(({ icon, label, value, color }) => (
+        {statCards.map(({ icon, label, value, sub, color, bg }) => (
           <div key={label} className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card p-5">
-            <span className={`material-symbols-outlined ${color} mb-3 block`} style={{ fontSize: '28px' }}>{icon}</span>
+            <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center mb-3`}>
+              <span className={`material-symbols-outlined ${color}`} style={{ fontSize: '20px' }}>{icon}</span>
+            </div>
             {loading ? (
               <div className="h-8 bg-surface-container rounded animate-pulse mb-1" />
             ) : (
               <p className="text-headline-sm text-on-surface mb-1">{value}</p>
             )}
-            <p className="text-body-sm text-on-surface-variant">{label}</p>
+            <p className="text-label-lg text-on-surface mb-0.5">{label}</p>
+            <p className="text-body-sm text-on-surface-variant">{sub}</p>
           </div>
         ))}
       </div>
 
+      {/* Gestion Rapide */}
+      <div className="mb-8">
+        <h2 className="text-headline-sm text-on-surface mb-4">Gestion Rapide</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {quickActions.map(({ icon, title, sub, section }) => (
+            <button
+              key={section}
+              onClick={() => onNavigate(section)}
+              className="flex items-center gap-4 bg-surface-container-lowest border border-outline-variant rounded-xl p-4 hover:bg-surface-container transition-colors text-left group"
+            >
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                <span className="material-symbols-outlined text-primary" style={{ fontSize: '20px' }}>{icon}</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-body-md text-on-surface font-medium">{title}</p>
+                <p className="text-body-sm text-on-surface-variant">{sub}</p>
+              </div>
+              <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors" style={{ fontSize: '18px' }}>chevron_right</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Réservations récentes */}
       <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card overflow-hidden">
-        <div className="px-5 py-4 border-b border-outline-variant">
-          <h2 className="text-headline-sm text-on-surface">Réservations récentes</h2>
+        <div className="px-5 py-4 border-b border-outline-variant flex items-center justify-between">
+          <h2 className="text-headline-sm text-on-surface">Réservations Récentes</h2>
+          <button
+            onClick={() => onNavigate('horaires')}
+            className="text-primary text-label-lg hover:underline"
+          >
+            Voir tout
+          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -112,7 +171,7 @@ function DashboardSection({ user }) {
               <tr className="border-b border-outline-variant">
                 <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Passager</th>
                 <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Trajet</th>
-                <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Départ</th>
+                <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Paiement</th>
                 <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Statut</th>
               </tr>
             </thead>
@@ -123,21 +182,47 @@ function DashboardSection({ user }) {
               {!loading && recent.length === 0 && (
                 <tr>
                   <td colSpan={4} className="py-8 text-center text-body-md text-on-surface-variant">
-                    Aucune réservation
+                    Aucune réservation récente
                   </td>
                 </tr>
               )}
               {!loading && recent.map((r) => (
                 <tr key={r.id} className="border-b border-outline-variant last:border-0 hover:bg-surface-container transition-colors">
-                  <td className="px-5 py-3 text-body-md text-on-surface">
-                    {r.user ? `${r.user.firstName} ${r.user.lastName}` : '—'}
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                        <span className="text-label-lg text-primary font-bold">
+                          {r.user ? r.user.firstName[0] : '?'}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-body-md text-on-surface font-medium">
+                          {r.user ? `${r.user.firstName} ${r.user.lastName}` : '—'}
+                        </p>
+                        <p className="text-body-sm text-on-surface-variant">#{r.reservationCode}</p>
+                      </div>
+                    </div>
                   </td>
-                  <td className="px-5 py-3 text-body-sm text-on-surface-variant">
-                    {r.trip?.route?.origin || '—'} → {r.trip?.route?.destination || '—'}
+                  <td className="px-5 py-3">
+                    <p className="text-body-sm text-on-surface">
+                      {r.trip?.route?.origin || '—'} → {r.trip?.route?.destination || '—'}
+                    </p>
+                    <p className="text-body-sm text-on-surface-variant">
+                      {r.trip?.departureDate ? new Date(r.trip.departureDate).toLocaleDateString('fr-FR') : '—'}
+                      {r.trip?.departureTime ? ` à ${r.trip.departureTime}` : ''}
+                    </p>
                   </td>
-                  <td className="px-5 py-3 text-body-sm text-on-surface-variant">
-                    {r.trip?.departureDate ? new Date(r.trip.departureDate).toLocaleDateString('fr-FR') : '—'}
-                    {r.trip?.departureTime ? ` ${r.trip.departureTime}` : ''}
+                  <td className="px-5 py-3">
+                    {r.payment ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-secondary inline-block" />
+                        <span className="text-body-sm text-on-surface-variant">
+                          {r.payment.method?.replace('_', ' ') || '—'}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-body-sm text-on-surface-variant">—</span>
+                    )}
                   </td>
                   <td className="px-5 py-3">
                     <span className={`text-label-md px-2 py-0.5 rounded-full ${STATUS_CONFIG[r.status]?.className || STATUS_CONFIG.PENDING.className}`}>
@@ -482,6 +567,7 @@ function TrajetsSection() {
   const [vehicles, setVehicles] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [selectedTrip, setSelectedTrip] = useState(null)
   const [form, setForm] = useState({
     routeId: '', vehicleId: '', departureDate: '', departureTime: '06:00', price: '',
   })
@@ -547,8 +633,12 @@ function TrajetsSection() {
 
   return (
     <>
+      {selectedTrip && (
+        <PassengersModal trip={selectedTrip} onClose={() => setSelectedTrip(null)} />
+      )}
+
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-headline-md text-on-surface">Trajets</h1>
+        <h1 className="text-headline-md text-on-surface">Horaires</h1>
         <button
           onClick={() => setShowForm((v) => !v)}
           className="flex items-center gap-2 bg-primary text-on-primary px-4 py-2 rounded-xl text-label-lg hover:opacity-90 transition"
@@ -678,15 +768,24 @@ function TrajetsSection() {
                         </span>
                       </td>
                       <td className="px-5 py-3 text-right">
-                        {t.status === 'SCHEDULED' && (
+                        <div className="flex items-center justify-end gap-1">
                           <button
-                            onClick={() => handleCancel(t.id)}
-                            className="text-error hover:bg-error-container/30 p-1 rounded-lg transition"
-                            title="Annuler le trajet"
+                            onClick={() => setSelectedTrip(t)}
+                            className="text-primary hover:bg-primary/10 p-1 rounded-lg transition"
+                            title="Voir les passagers"
                           >
-                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>cancel</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>group</span>
                           </button>
-                        )}
+                          {t.status === 'SCHEDULED' && (
+                            <button
+                              onClick={() => handleCancel(t.id)}
+                              className="text-error hover:bg-error-container/30 p-1 rounded-lg transition"
+                              title="Annuler le trajet"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>cancel</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -861,6 +960,146 @@ function AgentsSection() {
   )
 }
 
+// ── Modal Passagers ────────────────────────────────────────────────────────────
+function PassengersModal({ trip, onClose }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    getTripPassengers(trip.id)
+      .then((res) => setData(res.data?.data))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [trip.id])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+        <div className="px-5 py-4 border-b border-outline-variant flex items-center justify-between">
+          <div>
+            <h2 className="text-headline-sm text-on-surface">Liste des passagers</h2>
+            <p className="text-body-sm text-on-surface-variant mt-0.5">
+              {trip.route?.origin} → {trip.route?.destination} · {new Date(trip.departureDate).toLocaleDateString('fr-FR')} à {trip.departureTime}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>close</span>
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1">
+          {loading ? <Spinner /> : !data || data.passengers.length === 0 ? (
+            <EmptyState icon="group" text="Aucun passager confirmé pour ce trajet" />
+          ) : (
+            <>
+              <div className="px-5 py-3 border-b border-outline-variant bg-surface-container">
+                <p className="text-label-lg text-on-surface-variant">{data.total} passager{data.total > 1 ? 's' : ''} confirmé{data.total > 1 ? 's' : ''}</p>
+              </div>
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-outline-variant">
+                    <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Siège</th>
+                    <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Passager</th>
+                    <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Téléphone</th>
+                    <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Billet</th>
+                    <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Embarqué</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.passengers.map((p) => (
+                    <tr key={p.reservationCode} className="border-b border-outline-variant last:border-0 hover:bg-surface-container transition-colors">
+                      <td className="px-5 py-3">
+                        <span className={`text-label-md px-2 py-0.5 rounded-full ${p.seatType === 'VIP' ? 'bg-tertiary-container text-on-tertiary-container' : 'bg-surface-container text-on-surface-variant'}`}>
+                          {p.seat}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3">
+                        <p className="text-body-md text-on-surface font-medium">{p.firstName} {p.lastName}</p>
+                      </td>
+                      <td className="px-5 py-3 text-body-sm text-on-surface-variant font-mono">{p.phone}</td>
+                      <td className="px-5 py-3 text-body-sm text-on-surface-variant font-mono">{p.ticketCode || '—'}</td>
+                      <td className="px-5 py-3">
+                        {p.boarded ? (
+                          <span className="flex items-center gap-1 text-secondary text-label-md">
+                            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>check_circle</span>
+                            Oui
+                          </span>
+                        ) : (
+                          <span className="text-on-surface-variant text-label-md">Non</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Rapports ───────────────────────────────────────────────────────────────────
+function RapportsSection({ user }) {
+  const [stats, setStats] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetch = user.role === 'SUPER_ADMIN'
+      ? getGlobalStats()
+      : getCompanyStats(user.companyId)
+    fetch
+      .then((res) => setStats(res.data?.data))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [user])
+
+  const kpis = [
+    { label: 'Total réservations', value: stats?.totalReservations, icon: 'confirmation_number', color: 'text-primary' },
+    { label: 'Réservations confirmées', value: stats?.confirmedReservations, icon: 'check_circle', color: 'text-secondary' },
+    { label: 'Réservations annulées', value: stats?.cancelledReservations, icon: 'cancel', color: 'text-error' },
+    { label: 'Trajets planifiés', value: stats?.totalTrips, icon: 'directions_bus', color: 'text-primary' },
+    { label: 'Trajets actifs', value: stats?.activeTrips, icon: 'schedule', color: 'text-secondary' },
+    { label: 'Véhicules', value: stats?.vehicles, icon: 'airport_shuttle', color: 'text-tertiary' },
+  ]
+
+  return (
+    <>
+      <div className="mb-6">
+        <h1 className="text-headline-md text-on-surface">Rapports</h1>
+        <p className="text-body-sm text-on-surface-variant mt-1">Indicateurs de performance de votre compagnie.</p>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+        {kpis.map(({ label, value, icon, color }) => (
+          <div key={label} className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card p-5">
+            <span className={`material-symbols-outlined ${color} mb-3 block`} style={{ fontSize: '28px' }}>{icon}</span>
+            {loading ? (
+              <div className="h-8 bg-surface-container rounded animate-pulse mb-1" />
+            ) : (
+              <p className="text-headline-sm text-on-surface mb-1">{value ?? '—'}</p>
+            )}
+            <p className="text-body-sm text-on-surface-variant">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {stats?.dailySales != null && (
+        <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card p-5">
+          <h2 className="text-headline-sm text-on-surface mb-2">Ventes du jour</h2>
+          <p className="text-display-sm text-primary font-bold">
+            {stats.dailySales.toLocaleString('fr-FR')} FCFA
+          </p>
+          <p className="text-body-sm text-on-surface-variant mt-1">Paiements confirmés aujourd&apos;hui</p>
+        </div>
+      )}
+    </>
+  )
+}
+
 // ── Page principale ────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const { isAuthenticated, user } = useAuth()
@@ -871,28 +1110,47 @@ export default function AdminPage() {
 
   const navLinks = [
     { key: 'dashboard', icon: 'dashboard', label: 'Tableau de bord' },
-    { key: 'lignes', icon: 'route', label: 'Lignes' },
-    { key: 'vehicules', icon: 'directions_bus', label: 'Véhicules' },
-    { key: 'trajets', icon: 'schedule', label: 'Trajets' },
-    { key: 'agents', icon: 'badge', label: 'Agents' },
+    { key: 'bus', icon: 'directions_bus', label: 'Gestion des bus' },
+    { key: 'horaires', icon: 'schedule', label: 'Horaires' },
+    { key: 'agents', icon: 'badge', label: 'Agents & Chauffeurs' },
+    { key: 'rapports', icon: 'bar_chart', label: 'Rapports' },
   ]
 
   return (
     <div className="min-h-screen bg-background flex">
       {/* Sidebar */}
-      <aside className="hidden md:flex flex-col w-64 fixed top-0 left-0 h-full bg-surface-container-lowest border-r border-outline-variant z-40 pt-6 pb-6">
-        <div className="px-6 mb-8">
-          <p className="text-primary font-bold text-headline-sm">Mobili</p>
-          <p className="text-body-sm text-on-surface-variant mt-1">Administration</p>
+      <aside className="hidden md:flex flex-col w-64 fixed top-0 left-0 h-full bg-surface-container-lowest border-r border-outline-variant z-40">
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b border-outline-variant">
+          <div className="flex items-center gap-3 mb-1">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+              <span className="material-symbols-outlined text-on-primary" style={{ fontSize: '18px' }}>directions_bus</span>
+            </div>
+            <p className="text-primary font-bold text-title-lg">Gestion Mobili</p>
+          </div>
+          <p className="text-body-sm text-on-surface-variant ml-11">Portail Partenaire</p>
         </div>
+
+        {/* CTA */}
+        <div className="px-4 py-4">
+          <button
+            onClick={() => setActiveSection('horaires')}
+            className="w-full flex items-center justify-center gap-2 bg-primary text-on-primary px-4 py-2.5 rounded-xl text-label-lg hover:opacity-90 transition font-medium"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>add</span>
+            Ajouter un trajet
+          </button>
+        </div>
+
+        {/* Nav */}
         <nav className="flex-1 px-3 overflow-y-auto">
           {navLinks.map(({ key, icon, label }) => (
             <button
               key={key}
               onClick={() => setActiveSection(key)}
-              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl mb-1 text-body-md transition-colors text-left ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 text-body-md transition-colors text-left ${
                 activeSection === key
-                  ? 'bg-primary text-on-primary'
+                  ? 'bg-primary/10 text-primary font-medium'
                   : 'text-on-surface-variant hover:bg-surface-container'
               }`}
             >
@@ -901,15 +1159,31 @@ export default function AdminPage() {
             </button>
           ))}
         </nav>
-        <div className="px-6 mt-4">
-          <p className="text-label-md text-on-surface-variant truncate">{user?.firstName} {user?.lastName}</p>
-          <p className="text-label-sm text-on-surface-variant opacity-70">{user?.role}</p>
+
+        {/* Footer */}
+        <div className="px-3 py-4 border-t border-outline-variant">
+          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-body-md text-on-surface-variant hover:bg-surface-container transition-colors text-left">
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>settings</span>
+            Paramètres
+          </button>
+          <div className="px-3 pt-3 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+              <span className="text-label-lg text-primary font-bold">{user?.firstName?.[0]}</span>
+            </div>
+            <div className="min-w-0">
+              <p className="text-label-md text-on-surface truncate">{user?.firstName} {user?.lastName}</p>
+              <p className="text-label-sm text-on-surface-variant opacity-70 truncate">{user?.role}</p>
+            </div>
+          </div>
         </div>
       </aside>
 
       {/* Mobile header */}
       <div className="md:hidden fixed top-0 left-0 w-full bg-surface-container-lowest border-b border-outline-variant z-40 flex items-center gap-2 px-4 py-3">
-        <p className="text-primary font-bold text-headline-sm flex-1">Mobili · Admin</p>
+        <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
+          <span className="material-symbols-outlined text-on-primary" style={{ fontSize: '16px' }}>directions_bus</span>
+        </div>
+        <p className="text-primary font-bold text-title-md flex-1">Gestion Mobili</p>
       </div>
 
       {/* Mobile bottom nav */}
@@ -930,11 +1204,12 @@ export default function AdminPage() {
 
       {/* Main */}
       <main className="flex-1 md:ml-64 pt-16 md:pt-0 pb-24 md:pb-0 px-4 md:px-8 py-8">
-        {activeSection === 'dashboard' && <DashboardSection user={user} />}
-        {activeSection === 'lignes' && <LignesSection />}
-        {activeSection === 'vehicules' && <VehiculesSection />}
-        {activeSection === 'trajets' && <TrajetsSection />}
+        {activeSection === 'dashboard' && <DashboardSection user={user} onNavigate={setActiveSection} />}
+        {activeSection === 'bus' && <VehiculesSection />}
+        {activeSection === 'horaires' && <TrajetsSection />}
         {activeSection === 'agents' && <AgentsSection />}
+        {activeSection === 'rapports' && <RapportsSection user={user} />}
+        {activeSection === 'lignes' && <LignesSection />}
       </main>
     </div>
   )
