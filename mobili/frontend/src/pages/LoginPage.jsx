@@ -21,7 +21,10 @@ export default function LoginPage() {
       const res = await loginService(data)
       const payload = res.data?.data || res.data
       login(payload.user, payload.token)
-      navigate('/dashboard')
+      const role = payload.user?.role
+      if (role === 'ADMIN_COMPANY' || role === 'SUPER_ADMIN') navigate('/admin')
+      else if (role === 'AGENT') navigate('/agent')
+      else navigate('/dashboard')
     } catch (err) {
       setServerError(err.response?.data?.error || err.response?.data?.message || 'Email ou mot de passe incorrect.')
     }
