@@ -23,7 +23,7 @@ export default function LoginPage() {
       login(payload.user, payload.token)
       navigate('/dashboard')
     } catch (err) {
-      setServerError(err.response?.data?.message || 'Email ou mot de passe incorrect.')
+      setServerError(err.response?.data?.error || err.response?.data?.message || 'Email ou mot de passe incorrect.')
     }
   }
 

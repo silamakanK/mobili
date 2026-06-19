@@ -6,8 +6,8 @@ import { getTripById } from '../services/trips'
 function buildSeatGrid(seats) {
   if (!seats || seats.length === 0) {
     return Array.from({ length: 40 }, (_, i) => ({
-      id: i + 1,
-      seatNumber: i + 1,
+      id: null,
+      seatNumber: String(i + 1).padStart(2, '0'),
       isAvailable: true,
     }))
   }
@@ -22,7 +22,7 @@ export default function SeatSelectionPage() {
   const [trip, setTrip] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [selected, setSelected] = useState([])
+  const [selectedSeat, setSelectedSeat] = useState(null)
 
   useEffect(() => {
     if (!tripId) { setLoading(false); return }
@@ -32,22 +32,17 @@ export default function SeatSelectionPage() {
       .finally(() => setLoading(false))
   }, [tripId])
 
-  const seats = buildSeatGrid(trip?.seats)
+  const seats = buildSeatGrid(trip?.vehicle?.seats)
 
   function toggleSeat(seat) {
-    if (!seat.isAvailable) return
-    setSelected((prev) =>
-      prev.includes(seat.seatNumber)
-        ? prev.filter((n) => n !== seat.seatNumber)
-        : [...prev, seat.seatNumber]
-    )
+    if (!seat.isAvailable || !seat.id) return
+    setSelectedSeat((prev) => prev?.id === seat.id ? null : seat)
   }
 
   function handleContinue() {
-    navigate(`/payment?tripId=${tripId}&seats=${selected.join(',')}`)
+    if (!selectedSeat) return
+    navigate(`/payment?tripId=${tripId}&seatId=${selectedSeat.id}&seatNumber=${selectedSeat.seatNumber}`)
   }
-
-  const totalPrice = (trip?.price || 0) * selected.length
 
   if (loading) {
     return (
@@ -84,7 +79,6 @@ export default function SeatSelectionPage() {
       <Navbar />
 
       <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-6">
-        {/* Trip summary */}
         {trip && (
           <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 mb-6 flex items-center gap-4">
             <div className="w-12 h-12 rounded-lg bg-primary text-on-primary flex items-center justify-center font-bold text-label-lg shrink-0">
@@ -110,9 +104,7 @@ export default function SeatSelectionPage() {
           Cliquez sur un siège libre pour le sélectionner.
         </p>
 
-        {/* Bus plan */}
         <div className="max-w-[320px] mx-auto bg-surface-container-lowest border-2 border-outline-variant rounded-t-[3rem] rounded-b-xl pt-8 pb-4 px-6">
-          {/* Driver row */}
           <div className="flex justify-end mb-6">
             <div className="w-11 h-11 rounded-lg bg-surface-container border border-outline-variant flex items-center justify-center cursor-not-allowed">
               <span className="material-symbols-outlined text-outline" style={{ fontSize: '18px' }}>steering</span>
@@ -123,12 +115,12 @@ export default function SeatSelectionPage() {
             {rows.map((row, ri) => (
               <div key={ri} className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr 40px 1fr 1fr' }}>
                 {row.slice(0, 2).map((seat) => {
-                  const isSelected = selected.includes(seat.seatNumber)
+                  const isSelected = selectedSeat?.id === seat.id
                   return (
                     <button
-                      key={seat.id}
+                      key={seat.id ?? seat.seatNumber}
                       onClick={() => toggleSeat(seat)}
-                      disabled={!seat.isAvailable}
+                      disabled={!seat.isAvailable || !seat.id}
                       className={`w-11 h-11 rounded-lg text-label-md font-medium transition-colors relative ${
                         !seat.isAvailable
                           ? 'bg-surface-variant text-outline cursor-not-allowed'
@@ -137,24 +129,22 @@ export default function SeatSelectionPage() {
                           : 'bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high'
                       }`}
                     >
-                      {!seat.isAvailable && (
+                      {!seat.isAvailable ? (
                         <span className="absolute inset-0 flex items-center justify-center">
                           <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>close</span>
                         </span>
-                      )}
-                      {seat.isAvailable && seat.seatNumber}
+                      ) : seat.seatNumber}
                     </button>
                   )
                 })}
-                {/* Aisle */}
                 <div className="w-10" />
                 {row.slice(2, 4).map((seat) => {
-                  const isSelected = selected.includes(seat.seatNumber)
+                  const isSelected = selectedSeat?.id === seat.id
                   return (
                     <button
-                      key={seat.id}
+                      key={seat.id ?? seat.seatNumber}
                       onClick={() => toggleSeat(seat)}
-                      disabled={!seat.isAvailable}
+                      disabled={!seat.isAvailable || !seat.id}
                       className={`w-11 h-11 rounded-lg text-label-md font-medium transition-colors relative ${
                         !seat.isAvailable
                           ? 'bg-surface-variant text-outline cursor-not-allowed'
@@ -163,12 +153,11 @@ export default function SeatSelectionPage() {
                           : 'bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high'
                       }`}
                     >
-                      {!seat.isAvailable && (
+                      {!seat.isAvailable ? (
                         <span className="absolute inset-0 flex items-center justify-center">
                           <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>close</span>
                         </span>
-                      )}
-                      {seat.isAvailable && seat.seatNumber}
+                      ) : seat.seatNumber}
                     </button>
                   )
                 })}
@@ -177,7 +166,6 @@ export default function SeatSelectionPage() {
           </div>
         </div>
 
-        {/* Legend */}
         <div className="flex items-center justify-center gap-6 mt-6">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded bg-surface-container border border-outline-variant" />
@@ -194,24 +182,21 @@ export default function SeatSelectionPage() {
         </div>
       </main>
 
-      {/* Sticky footer */}
       <div className="fixed bottom-0 left-0 w-full bg-surface-container-lowest border-t border-outline-variant px-4 py-4 z-40">
         <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
           <div>
             <p className="text-body-sm text-on-surface-variant">
-              {selected.length > 0
-                ? `Siège${selected.length > 1 ? 's' : ''} ${selected.join(', ')}`
-                : 'Aucun siège sélectionné'}
+              {selectedSeat ? `Siège ${selectedSeat.seatNumber}` : 'Aucun siège sélectionné'}
             </p>
             <p className="text-headline-sm text-on-surface">
-              {totalPrice.toLocaleString('fr-FR')} FCFA
+              {(trip?.price || 0).toLocaleString('fr-FR')} FCFA
             </p>
           </div>
           <button
             onClick={handleContinue}
-            disabled={selected.length === 0}
+            disabled={!selectedSeat}
             className={`bg-primary text-on-primary h-14 px-8 rounded-lg text-label-lg font-semibold transition-colors ${
-              selected.length === 0 ? 'opacity-40 cursor-not-allowed' : 'hover:bg-primary-container'
+              !selectedSeat ? 'opacity-40 cursor-not-allowed' : 'hover:bg-primary-container'
             }`}
           >
             Continuer

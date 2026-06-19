@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { getTripById } from '../services/trips'
-import { createReservation } from '../services/reservations'
-import { initiatePayment } from '../services/payments'
+import { createReservation, getReservationById } from '../services/reservations'
+import { initiatePayment, simulateWebhook } from '../services/payments'
 
 const PAYMENT_METHODS = [
   { id: 'ORANGE_MONEY', label: 'Orange Money', icon: 'phone_iphone' },
@@ -16,8 +16,8 @@ export default function PaymentPage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const tripId = params.get('tripId')
-  const seatParams = params.get('seats') || ''
-  const seats = seatParams.split(',').filter(Boolean).map(Number)
+  const seatId = params.get('seatId')
+  const seatNumber = params.get('seatNumber')
 
   const [trip, setTrip] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -33,34 +33,33 @@ export default function PaymentPage() {
       .finally(() => setLoading(false))
   }, [tripId])
 
-  const totalPrice = (trip?.price || 0) * seats.length
-
   async function handlePay() {
-    if (submitting) return
+    if (submitting || !seatId) return
     setSubmitting(true)
     setError(null)
     try {
-      const reservationRes = await createReservation({
-        tripId,
-        seatNumbers: seats,
-        totalAmount: totalPrice,
-      })
+      const reservationRes = await createReservation({ tripId, seatId })
       const reservation = reservationRes.data?.data || reservationRes.data
-      const paymentRes = await initiatePayment({
-        reservationId: reservation.id,
-        method: paymentMethod,
-        amount: totalPrice,
+
+      await initiatePayment({ reservationId: reservation.id, method: paymentMethod })
+
+      await simulateWebhook({
+        reservationCode: reservation.reservationCode,
+        transactionId: `DEMO-${Date.now()}`,
+        status: 'success',
       })
-      const payment = paymentRes.data?.data || paymentRes.data
-      if (payment?.redirectUrl) {
-        window.location.href = payment.redirectUrl
-      } else if (payment?.ticketId || reservation?.ticketId) {
-        navigate(`/ticket/${payment?.ticketId || reservation?.ticketId}`)
+
+      const updatedRes = await getReservationById(reservation.id)
+      const updated = updatedRes.data?.data || updatedRes.data
+      const ticketId = updated?.ticket?.id
+
+      if (ticketId) {
+        navigate(`/ticket/${ticketId}`)
       } else {
-        navigate(`/ticket/${reservation?.id}`)
+        navigate('/dashboard')
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Une erreur est survenue. Veuillez réessayer.')
+      setError(err.response?.data?.error || err.response?.data?.message || 'Une erreur est survenue. Veuillez réessayer.')
       setSubmitting(false)
     }
   }
@@ -83,7 +82,6 @@ export default function PaymentPage() {
       <main className="flex-1 max-w-lg mx-auto w-full px-4 py-8">
         <h1 className="text-headline-md text-on-surface mb-6">Finaliser la réservation</h1>
 
-        {/* Reservation summary */}
         <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 mb-6">
           <p className="text-label-lg text-on-surface-variant mb-3">Récapitulatif</p>
           {trip && (
@@ -101,8 +99,8 @@ export default function PaymentPage() {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-body-md text-on-surface-variant">Siège{seats.length > 1 ? 's' : ''}</span>
-                <span className="text-body-md text-on-surface">{seats.join(', ')}</span>
+                <span className="text-body-md text-on-surface-variant">Siège</span>
+                <span className="text-body-md text-on-surface">{seatNumber || '—'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-body-md text-on-surface-variant">Compagnie</span>
@@ -110,13 +108,12 @@ export default function PaymentPage() {
               </div>
               <div className="border-t border-outline-variant pt-2 mt-2 flex justify-between">
                 <span className="text-label-lg text-on-surface">Total</span>
-                <span className="text-headline-sm text-on-surface">{totalPrice.toLocaleString('fr-FR')} FCFA</span>
+                <span className="text-headline-sm text-on-surface">{(trip.price || 0).toLocaleString('fr-FR')} FCFA</span>
               </div>
             </div>
           )}
         </div>
 
-        {/* Payment method */}
         <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 mb-6">
           <p className="text-label-lg text-on-surface-variant mb-4">Mode de paiement</p>
           <div className="space-y-3">
@@ -147,7 +144,6 @@ export default function PaymentPage() {
           </div>
         </div>
 
-        {/* Security badge */}
         <div className="flex items-center justify-center gap-2 bg-surface-container-low rounded-full px-4 py-2 mb-6 w-fit mx-auto">
           <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '18px' }}>lock</span>
           <span className="text-body-sm text-on-surface-variant">Paiement sécurisé par cryptage SSL</span>
@@ -162,7 +158,7 @@ export default function PaymentPage() {
 
         <button
           onClick={handlePay}
-          disabled={submitting}
+          disabled={submitting || !seatId}
           className="w-full bg-primary text-on-primary text-headline-sm py-4 rounded-xl hover:bg-primary-container transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           {submitting ? (
@@ -170,7 +166,7 @@ export default function PaymentPage() {
           ) : (
             <>
               <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>payment</span>
-              Payer maintenant ({totalPrice.toLocaleString('fr-FR')} FCFA)
+              Payer maintenant ({(trip?.price || 0).toLocaleString('fr-FR')} FCFA)
             </>
           )}
         </button>

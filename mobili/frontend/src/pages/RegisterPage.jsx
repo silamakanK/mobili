@@ -27,7 +27,7 @@ export default function RegisterPage() {
       login(resData.user, resData.token)
       navigate('/dashboard')
     } catch (err) {
-      setServerError(err.response?.data?.message || 'Une erreur est survenue. Veuillez réessayer.')
+      setServerError(err.response?.data?.error || err.response?.data?.message || 'Une erreur est survenue. Veuillez réessayer.')
     }
   }
 
