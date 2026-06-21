@@ -4,8 +4,10 @@ import { useAuth } from '../contexts/AuthContext'
 import { getCompanyStats, getGlobalStats } from '../services/stats'
 import { listRoutes, createRoute, deleteRoute } from '../services/routes'
 import { listVehicles, createVehicle, deleteVehicle } from '../services/vehicles'
-import { listCompanyTrips, createTrip, cancelTrip, getTripPassengers } from '../services/trips-admin'
-import { listUsers, createAgent } from '../services/users'
+import { listCompanyTrips, createTrip, updateTrip, cancelTrip, getTripPassengers } from '../services/trips-admin'
+import { listUsers, createAgent, updateUser } from '../services/users'
+import { listCompanyReservations } from '../services/reservations'
+import { listSeats, updateSeat } from '../services/seats'
 
 const ADMIN_ROLES = ['ADMIN_COMPANY', 'SUPER_ADMIN']
 
@@ -159,7 +161,7 @@ function DashboardSection({ user, onNavigate }) {
         <div className="px-5 py-4 border-b border-outline-variant flex items-center justify-between">
           <h2 className="text-headline-sm text-on-surface">Réservations Récentes</h2>
           <button
-            onClick={() => onNavigate('horaires')}
+            onClick={() => onNavigate('reservations')}
             className="text-primary text-label-lg hover:underline"
           >
             Voir tout
@@ -573,6 +575,10 @@ function TrajetsSection() {
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [editingTrip, setEditingTrip] = useState(null)
+  const [editForm, setEditForm] = useState({ price: '', departureTime: '' })
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -624,6 +630,30 @@ function TrajetsSection() {
     }
   }
 
+  const handleEditOpen = (t) => {
+    setEditingTrip(t)
+    setEditForm({ price: String(t.price), departureTime: t.departureTime })
+    setEditError('')
+  }
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault()
+    setEditError('')
+    setEditSaving(true)
+    try {
+      await updateTrip(editingTrip.id, {
+        price: Number(editForm.price),
+        departureTime: editForm.departureTime,
+      })
+      setEditingTrip(null)
+      load()
+    } catch (err) {
+      setEditError(err.response?.data?.error || 'Erreur lors de la mise à jour.')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
   const tripStatusLabel = { SCHEDULED: 'Prévu', COMPLETED: 'Terminé', CANCELLED: 'Annulé' }
   const tripStatusClass = {
     SCHEDULED: 'bg-secondary-container text-on-secondary-container',
@@ -635,6 +665,67 @@ function TrajetsSection() {
     <>
       {selectedTrip && (
         <PassengersModal trip={selectedTrip} onClose={() => setSelectedTrip(null)} />
+      )}
+
+      {editingTrip && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-xl w-full max-w-md">
+            <div className="px-5 py-4 border-b border-outline-variant flex items-center justify-between">
+              <div>
+                <h2 className="text-headline-sm text-on-surface">Modifier le trajet</h2>
+                <p className="text-body-sm text-on-surface-variant mt-0.5">
+                  {editingTrip.route?.origin} → {editingTrip.route?.destination} · {new Date(editingTrip.departureDate).toLocaleDateString('fr-FR')}
+                </p>
+              </div>
+              <button
+                onClick={() => setEditingTrip(null)}
+                className="p-1 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>close</span>
+              </button>
+            </div>
+            <form onSubmit={handleEditSubmit} className="p-5 space-y-4">
+              <div>
+                <label className="text-label-lg text-on-surface-variant block mb-1">Prix (FCFA)</label>
+                <input
+                  required
+                  type="number"
+                  min={100}
+                  value={editForm.price}
+                  onChange={(e) => setEditForm((f) => ({ ...f, price: e.target.value }))}
+                  className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="text-label-lg text-on-surface-variant block mb-1">Heure de départ</label>
+                <input
+                  required
+                  type="time"
+                  value={editForm.departureTime}
+                  onChange={(e) => setEditForm((f) => ({ ...f, departureTime: e.target.value }))}
+                  className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              {editError && <ErrorMsg msg={editError} />}
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  disabled={editSaving}
+                  className="bg-primary text-on-primary px-5 py-2 rounded-xl text-label-lg hover:opacity-90 disabled:opacity-50 transition"
+                >
+                  {editSaving ? 'Enregistrement…' : 'Enregistrer'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingTrip(null)}
+                  className="text-on-surface-variant text-label-lg hover:underline"
+                >
+                  Annuler
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       <div className="flex items-center justify-between mb-6">
@@ -778,6 +869,15 @@ function TrajetsSection() {
                           </button>
                           {t.status === 'SCHEDULED' && (
                             <button
+                              onClick={() => handleEditOpen(t)}
+                              className="text-on-surface-variant hover:bg-surface-container p-1 rounded-lg transition"
+                              title="Modifier prix / heure"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
+                            </button>
+                          )}
+                          {t.status === 'SCHEDULED' && (
+                            <button
                               onClick={() => handleCancel(t.id)}
                               className="text-error hover:bg-error-container/30 p-1 rounded-lg transition"
                               title="Annuler le trajet"
@@ -820,6 +920,15 @@ function AgentsSection() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const handleToggleActive = async (agent) => {
+    try {
+      await updateUser(agent.id, { isActive: !agent.isActive })
+      load()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Erreur.')
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -935,6 +1044,7 @@ function AgentsSection() {
                 <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Email</th>
                 <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Téléphone</th>
                 <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Statut</th>
+                <th className="px-5 py-3" />
               </tr>
             </thead>
             <tbody>
@@ -949,6 +1059,17 @@ function AgentsSection() {
                     <span className={`text-label-md px-2 py-0.5 rounded-full ${a.isActive ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container text-on-surface-variant'}`}>
                       {a.isActive ? 'Actif' : 'Inactif'}
                     </span>
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button
+                      onClick={() => handleToggleActive(a)}
+                      className={`p-1 rounded-lg transition ${a.isActive ? 'text-error hover:bg-error-container/30' : 'text-secondary hover:bg-secondary-container/30'}`}
+                      title={a.isActive ? 'Désactiver' : 'Réactiver'}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
+                        {a.isActive ? 'person_off' : 'person'}
+                      </span>
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -1042,6 +1163,283 @@ function PassengersModal({ trip, onClose }) {
   )
 }
 
+// ── Places ─────────────────────────────────────────────────────────────────────
+function PlacesSection() {
+  const [vehicles, setVehicles] = useState([])
+  const [selectedVehicleId, setSelectedVehicleId] = useState('')
+  const [seats, setSeats] = useState([])
+  const [loadingVehicles, setLoadingVehicles] = useState(true)
+  const [loadingSeats, setLoadingSeats] = useState(false)
+  const [updating, setUpdating] = useState(null)
+
+  useEffect(() => {
+    listVehicles({ limit: 100 })
+      .then((res) => {
+        const v = res.data?.data?.vehicles || []
+        setVehicles(v)
+        if (v.length > 0) setSelectedVehicleId(v[0].id)
+      })
+      .catch(() => {})
+      .finally(() => setLoadingVehicles(false))
+  }, [])
+
+  useEffect(() => {
+    if (!selectedVehicleId) return
+    setLoadingSeats(true)
+    listSeats(selectedVehicleId)
+      .then((res) => setSeats(res.data?.data || []))
+      .catch(() => {})
+      .finally(() => setLoadingSeats(false))
+  }, [selectedVehicleId])
+
+  const handleToggleType = async (seat) => {
+    setUpdating(seat.id)
+    try {
+      const newType = seat.type === 'VIP' ? 'STANDARD' : 'VIP'
+      await updateSeat(seat.id, { type: newType })
+      setSeats((prev) => prev.map((s) => s.id === seat.id ? { ...s, type: newType } : s))
+    } catch (err) {
+      alert(err.response?.data?.error || 'Erreur.')
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  const selectedVehicle = vehicles.find((v) => v.id === selectedVehicleId)
+  const vipCount = seats.filter((s) => s.type === 'VIP').length
+  const availableCount = seats.filter((s) => s.isAvailable).length
+
+  return (
+    <>
+      <div className="mb-6">
+        <h1 className="text-headline-md text-on-surface">Places</h1>
+        <p className="text-body-sm text-on-surface-variant mt-1">Gérez la disposition des sièges par véhicule.</p>
+      </div>
+
+      <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 mb-6">
+        <label className="text-label-lg text-on-surface-variant block mb-2">Sélectionner un véhicule</label>
+        {loadingVehicles ? (
+          <div className="h-10 bg-surface-container rounded-lg animate-pulse w-64" />
+        ) : (
+          <select
+            value={selectedVehicleId}
+            onChange={(e) => setSelectedVehicleId(e.target.value)}
+            className="w-full md:w-72 border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            {vehicles.length === 0 && <option value="">Aucun véhicule enregistré</option>}
+            {vehicles.map((v) => (
+              <option key={v.id} value={v.id}>{v.registrationNumber} ({v.totalSeats} places)</option>
+            ))}
+          </select>
+        )}
+        {selectedVehicle && !loadingSeats && seats.length > 0 && (
+          <div className="flex flex-wrap gap-4 mt-3 text-body-sm text-on-surface-variant">
+            <span>{availableCount}/{seats.length} places disponibles</span>
+            <span>{vipCount} place{vipCount !== 1 ? 's' : ''} VIP</span>
+            <span>{seats.length - vipCount} place{(seats.length - vipCount) !== 1 ? 's' : ''} Standard</span>
+          </div>
+        )}
+      </div>
+
+      {selectedVehicleId && (
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5">
+          <h2 className="text-headline-sm text-on-surface mb-4">Disposition des sièges</h2>
+          {loadingSeats ? (
+            <Spinner />
+          ) : seats.length === 0 ? (
+            <EmptyState icon="airline_seat_recline_extra" text="Aucun siège configuré pour ce véhicule" />
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-4 mb-5 text-body-sm text-on-surface-variant">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded bg-surface-container border border-outline-variant inline-block" />
+                  Standard
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded bg-tertiary-container inline-block" />
+                  VIP
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded bg-error-container/30 inline-block" />
+                  Réservé
+                </span>
+              </div>
+              <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-2">
+                {seats.map((seat) => (
+                  <button
+                    key={seat.id}
+                    onClick={() => !seat.isAvailable ? null : handleToggleType(seat)}
+                    disabled={updating === seat.id || !seat.isAvailable}
+                    title={seat.isAvailable
+                      ? `Siège ${seat.seatNumber} — ${seat.type} (clic pour basculer en ${seat.type === 'VIP' ? 'Standard' : 'VIP'})`
+                      : `Siège ${seat.seatNumber} — Réservé`
+                    }
+                    className={`
+                      flex flex-col items-center justify-center rounded-lg py-2 px-1 border transition text-label-sm font-medium gap-0.5
+                      ${!seat.isAvailable
+                        ? 'bg-error-container/20 border-error-container/40 text-error cursor-not-allowed opacity-60'
+                        : seat.type === 'VIP'
+                          ? 'bg-tertiary-container text-on-tertiary-container border-tertiary hover:opacity-75 cursor-pointer'
+                          : 'bg-surface-container text-on-surface-variant border-outline-variant hover:bg-surface-container-high cursor-pointer'
+                      }
+                      ${updating === seat.id ? 'opacity-40' : ''}
+                    `}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>airline_seat_recline_extra</span>
+                    <span>{seat.seatNumber}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="text-body-sm text-on-surface-variant mt-4">
+                Cliquez sur un siège disponible pour basculer entre Standard et VIP.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── Réservations ───────────────────────────────────────────────────────────────
+function ReservationsSection() {
+  const [reservations, setReservations] = useState([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const limit = 20
+
+  const load = useCallback(() => {
+    setLoading(true)
+    listCompanyReservations({ page, limit, ...(statusFilter ? { status: statusFilter } : {}) })
+      .then((res) => {
+        const data = res.data?.data
+        setReservations(data?.reservations || [])
+        setTotal(data?.total || 0)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [page, statusFilter])
+
+  useEffect(() => { load() }, [load])
+
+  const statusTabs = [
+    { key: '', label: 'Toutes' },
+    { key: 'CONFIRMED', label: 'Confirmées' },
+    { key: 'PENDING', label: 'En attente' },
+    { key: 'CANCELLED', label: 'Annulées' },
+  ]
+
+  const totalPages = Math.ceil(total / limit)
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-headline-md text-on-surface">Réservations</h1>
+          <p className="text-body-sm text-on-surface-variant mt-1">
+            {total} réservation{total !== 1 ? 's' : ''} au total
+          </p>
+        </div>
+      </div>
+
+      <div className="flex gap-2 mb-6 flex-wrap">
+        {statusTabs.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => { setStatusFilter(key); setPage(1) }}
+            className={`px-4 py-1.5 rounded-full text-label-lg transition ${
+              statusFilter === key
+                ? 'bg-primary text-on-primary'
+                : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card overflow-hidden">
+        {loading ? <Spinner /> : reservations.length === 0 ? (
+          <EmptyState icon="confirmation_number" text="Aucune réservation trouvée" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-outline-variant">
+                  <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Passager</th>
+                  <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Trajet</th>
+                  <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Date</th>
+                  <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Siège</th>
+                  <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Montant</th>
+                  <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Statut</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reservations.map((r) => (
+                  <tr key={r.id} className="border-b border-outline-variant last:border-0 hover:bg-surface-container transition-colors">
+                    <td className="px-5 py-3">
+                      <p className="text-body-md text-on-surface font-medium">
+                        {r.user ? `${r.user.firstName} ${r.user.lastName}` : '—'}
+                      </p>
+                      <p className="text-body-sm text-on-surface-variant font-mono">{r.reservationCode}</p>
+                    </td>
+                    <td className="px-5 py-3">
+                      <p className="text-body-sm text-on-surface">
+                        {r.trip?.route?.origin || '—'} → {r.trip?.route?.destination || '—'}
+                      </p>
+                    </td>
+                    <td className="px-5 py-3 text-body-sm text-on-surface-variant whitespace-nowrap">
+                      {r.trip?.departureDate ? new Date(r.trip.departureDate).toLocaleDateString('fr-FR') : '—'}
+                      {r.trip?.departureTime ? ` à ${r.trip.departureTime}` : ''}
+                    </td>
+                    <td className="px-5 py-3">
+                      {r.seat ? (
+                        <span className={`text-label-md px-2 py-0.5 rounded-full ${r.seat.type === 'VIP' ? 'bg-tertiary-container text-on-tertiary-container' : 'bg-surface-container text-on-surface-variant'}`}>
+                          {r.seat.seatNumber}
+                        </span>
+                      ) : <span className="text-on-surface-variant">—</span>}
+                    </td>
+                    <td className="px-5 py-3 text-body-sm text-on-surface-variant whitespace-nowrap">
+                      {(r.totalAmount || 0).toLocaleString('fr-FR')} FCFA
+                    </td>
+                    <td className="px-5 py-3">
+                      <span className={`text-label-md px-2 py-0.5 rounded-full ${STATUS_CONFIG[r.status]?.className || STATUS_CONFIG.PENDING.className}`}>
+                        {STATUS_CONFIG[r.status]?.label || r.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-4">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1}
+            className="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant disabled:opacity-40 hover:bg-surface-container-high transition text-label-lg"
+          >
+            ‹ Préc.
+          </button>
+          <span className="text-body-sm text-on-surface-variant">Page {page} / {totalPages}</span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page === totalPages}
+            className="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant disabled:opacity-40 hover:bg-surface-container-high transition text-label-lg"
+          >
+            Suiv. ›
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
 // ── Rapports ───────────────────────────────────────────────────────────────────
 function RapportsSection({ user }) {
   const [stats, setStats] = useState(null)
@@ -1110,9 +1508,12 @@ export default function AdminPage() {
 
   const navLinks = [
     { key: 'dashboard', icon: 'dashboard', label: 'Tableau de bord' },
-    { key: 'bus', icon: 'directions_bus', label: 'Gestion des bus' },
+    { key: 'lignes', icon: 'route', label: 'Lignes' },
+    { key: 'bus', icon: 'directions_bus', label: 'Véhicules' },
+    { key: 'places', icon: 'airline_seat_recline_extra', label: 'Places' },
     { key: 'horaires', icon: 'schedule', label: 'Horaires' },
-    { key: 'agents', icon: 'badge', label: 'Agents & Chauffeurs' },
+    { key: 'reservations', icon: 'confirmation_number', label: 'Réservations' },
+    { key: 'agents', icon: 'badge', label: 'Agents' },
     { key: 'rapports', icon: 'bar_chart', label: 'Rapports' },
   ]
 
@@ -1205,11 +1606,13 @@ export default function AdminPage() {
       {/* Main */}
       <main className="flex-1 md:ml-64 pt-16 md:pt-0 pb-24 md:pb-0 px-4 md:px-8 py-8">
         {activeSection === 'dashboard' && <DashboardSection user={user} onNavigate={setActiveSection} />}
+        {activeSection === 'lignes' && <LignesSection />}
         {activeSection === 'bus' && <VehiculesSection />}
+        {activeSection === 'places' && <PlacesSection />}
         {activeSection === 'horaires' && <TrajetsSection />}
+        {activeSection === 'reservations' && <ReservationsSection />}
         {activeSection === 'agents' && <AgentsSection />}
         {activeSection === 'rapports' && <RapportsSection user={user} />}
-        {activeSection === 'lignes' && <LignesSection />}
       </main>
     </div>
   )

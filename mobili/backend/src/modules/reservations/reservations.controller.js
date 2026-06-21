@@ -45,9 +45,28 @@ async function cancelReservationHandler(req, res, next) {
   }
 }
 
+async function listCompanyReservationsHandler(req, res, next) {
+  try {
+    const { page = 1, limit = 20, status } = req.query
+    const companyId = req.user.role === 'SUPER_ADMIN' ? req.query.companyId : req.user.companyId
+    if (!companyId) {
+      return res.status(400).json({ success: false, error: 'companyId requis.' })
+    }
+    const result = await service.listCompanyReservations(companyId, {
+      page: Number(page),
+      limit: Number(limit),
+      status,
+    })
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+}
+
 module.exports = {
   createReservationHandler,
   getMyReservationsHandler,
   getReservationByIdHandler,
   cancelReservationHandler,
+  listCompanyReservationsHandler,
 }

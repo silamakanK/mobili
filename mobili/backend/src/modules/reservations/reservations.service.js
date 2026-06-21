@@ -146,4 +146,41 @@ async function cancelReservation(id, userId) {
   return { message: 'Réservation annulée avec succès.' }
 }
 
-module.exports = { createReservation, getUserReservations, getReservationById, cancelReservation }
+async function listCompanyReservations(companyId, { page = 1, limit = 20, status } = {}) {
+  const skip = (page - 1) * limit
+  const where = {
+    trip: { route: { companyId } },
+    ...(status ? { status } : {}),
+  }
+  const [reservations, total] = await Promise.all([
+    prisma.reservation.findMany({
+      where,
+      include: {
+        user: { select: { firstName: true, lastName: true, phone: true, email: true } },
+        trip: {
+          select: {
+            id: true,
+            departureDate: true,
+            departureTime: true,
+            route: { select: { origin: true, destination: true } },
+          },
+        },
+        seat: { select: { seatNumber: true, type: true } },
+        payment: { select: { method: true, status: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    }),
+    prisma.reservation.count({ where }),
+  ])
+  return { reservations, total, page, limit }
+}
+
+module.exports = {
+  createReservation,
+  getUserReservations,
+  getReservationById,
+  cancelReservation,
+  listCompanyReservations,
+}
