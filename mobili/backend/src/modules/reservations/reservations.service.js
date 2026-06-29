@@ -77,7 +77,7 @@ async function getUserReservations(userId) {
       trip: { include: { route: { select: { origin: true, destination: true } } } },
       seat: { select: { seatNumber: true, type: true } },
       payment: { select: { status: true, method: true } },
-      ticket: { select: { ticketCode: true, isUsed: true } },
+      ticket: { select: { id: true, ticketCode: true, isUsed: true } },
     },
     orderBy: { createdAt: 'desc' },
   })

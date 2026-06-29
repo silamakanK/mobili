@@ -2,14 +2,7 @@ const { z } = require('zod')
 const service = require('./payments.service')
 
 const initiateSchema = z.object({
-  reservationId: z.string().uuid(),
-  method: z.enum(['ORANGE_MONEY', 'MOOV_MONEY', 'WAVE', 'CARD']),
-})
-
-const webhookSchema = z.object({
-  reservationCode: z.string().min(1),
-  transactionId: z.string().min(1),
-  status: z.enum(['success', 'failed']),
+  reservationIds: z.array(z.string().uuid()).min(1, 'Au moins une réservation est requise.'),
 })
 
 async function initiatePaymentHandler(req, res, next) {
@@ -24,15 +17,24 @@ async function initiatePaymentHandler(req, res, next) {
   }
 }
 
+// Webhook CinetPay (IPN) + format legacy / simulation
 async function webhookHandler(req, res, next) {
   try {
-    const data = webhookSchema.parse(req.body)
-    const result = await service.handleWebhook(data)
+    const result = await service.handleWebhook(req.body)
     res.json({ success: true, data: result })
   } catch (err) {
-    if (err instanceof z.ZodError)
-      return res.status(400).json({ success: false, errors: err.errors })
     next(err)
+  }
+}
+
+// Webhook Stripe — body raw (Buffer) requis pour vérification de signature
+async function stripeWebhookHandler(req, res) {
+  try {
+    const signature = req.headers['stripe-signature']
+    const result = await service.handleStripeWebhook(req.body, signature)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
   }
 }
 
@@ -45,4 +47,9 @@ async function getPaymentStatusHandler(req, res, next) {
   }
 }
 
-module.exports = { initiatePaymentHandler, webhookHandler, getPaymentStatusHandler }
+module.exports = {
+  initiatePaymentHandler,
+  webhookHandler,
+  stripeWebhookHandler,
+  getPaymentStatusHandler,
+}

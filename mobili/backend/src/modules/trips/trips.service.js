@@ -1,14 +1,15 @@
 const prisma = require('../../config/prisma')
 
 async function searchTrips({ from, to, date }) {
-  const departureDateStart = new Date(`${date}T00:00:00.000Z`)
-  const departureDateEnd = new Date(`${date}T23:59:59.999Z`)
+  const dateFilter = date
+    ? { gte: new Date(`${date}T00:00:00.000Z`), lte: new Date(`${date}T23:59:59.999Z`) }
+    : { gte: new Date() }
 
   const trips = await prisma.trip.findMany({
     where: {
       status: 'SCHEDULED',
       availableSeats: { gt: 0 },
-      departureDate: { gte: departureDateStart, lte: departureDateEnd },
+      departureDate: dateFilter,
       route: {
         origin: { contains: from, mode: 'insensitive' },
         destination: { contains: to, mode: 'insensitive' },

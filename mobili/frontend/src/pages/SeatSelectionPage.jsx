@@ -1,7 +1,42 @@
+import PropTypes from 'prop-types'
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { getTripById } from '../services/trips'
+
+function seatClassName(isUnavailable, isSelected) {
+  if (isUnavailable) return 'bg-error-container/40 text-on-error-container cursor-not-allowed opacity-60'
+  if (isSelected) return 'bg-primary text-on-primary ring-2 ring-primary ring-offset-1'
+  return 'bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high'
+}
+
+function SeatButton({ seat, isSelected, onToggle }) {
+  const isUnavailable = !seat.isAvailable || !seat.id
+  return (
+    <button
+      onClick={() => onToggle(seat)}
+      disabled={isUnavailable}
+      title={isUnavailable ? 'Place occupée' : `Siège ${seat.seatNumber}`}
+      className={`w-11 h-11 rounded-lg text-label-md font-medium transition-colors relative ${seatClassName(isUnavailable, isSelected)}`}
+    >
+      {isUnavailable ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>person</span>
+        </span>
+      ) : seat.seatNumber}
+    </button>
+  )
+}
+
+SeatButton.propTypes = {
+  seat: PropTypes.shape({
+    id: PropTypes.string,
+    seatNumber: PropTypes.string.isRequired,
+    isAvailable: PropTypes.bool,
+  }).isRequired,
+  isSelected: PropTypes.bool.isRequired,
+  onToggle: PropTypes.func.isRequired,
+}
 
 function buildSeatGrid(seats) {
   if (!seats || seats.length === 0) {
@@ -22,7 +57,7 @@ export default function SeatSelectionPage() {
   const [trip, setTrip] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [selectedSeat, setSelectedSeat] = useState(null)
+  const [selectedSeats, setSelectedSeats] = useState([])
 
   useEffect(() => {
     if (!tripId) { setLoading(false); return }
@@ -36,13 +71,22 @@ export default function SeatSelectionPage() {
 
   function toggleSeat(seat) {
     if (!seat.isAvailable || !seat.id) return
-    setSelectedSeat((prev) => prev?.id === seat.id ? null : seat)
+    setSelectedSeats((prev) => {
+      const already = prev.find((s) => s.id === seat.id)
+      return already ? prev.filter((s) => s.id !== seat.id) : [...prev, seat]
+    })
   }
 
   function handleContinue() {
-    if (!selectedSeat) return
-    navigate(`/payment?tripId=${tripId}&seatId=${selectedSeat.id}&seatNumber=${selectedSeat.seatNumber}`)
+    if (selectedSeats.length === 0) return
+    const seatIds = selectedSeats.map((s) => s.id).join(',')
+    const seatNumbers = selectedSeats.map((s) => s.seatNumber).join(',')
+    navigate(`/payment?tripId=${tripId}&seatIds=${seatIds}&seatNumbers=${seatNumbers}`)
   }
+
+  const totalPrice = (trip?.price || 0) * selectedSeats.length
+  const rows = []
+  for (let i = 0; i < seats.length; i += 4) rows.push(seats.slice(i, i + 4))
 
   if (loading) {
     return (
@@ -69,11 +113,6 @@ export default function SeatSelectionPage() {
     )
   }
 
-  const rows = []
-  for (let i = 0; i < seats.length; i += 4) {
-    rows.push(seats.slice(i, i + 4))
-  }
-
   return (
     <div className="min-h-screen bg-background flex flex-col pb-32">
       <Navbar />
@@ -94,19 +133,19 @@ export default function SeatSelectionPage() {
               </p>
             </div>
             <p className="text-headline-sm text-on-surface shrink-0">
-              {(trip.price || 0).toLocaleString('fr-FR')} FCFA
+              {(trip.price || 0).toLocaleString('fr-FR')} FCFA / siège
             </p>
           </div>
         )}
 
-        <h2 className="text-headline-sm text-on-surface mb-2">Choisissez votre siège</h2>
+        <h2 className="text-headline-sm text-on-surface mb-1">Choisissez vos sièges</h2>
         <p className="text-body-sm text-on-surface-variant mb-6">
-          Cliquez sur un siège libre pour le sélectionner.
+          Vous pouvez sélectionner plusieurs sièges en même temps.
         </p>
 
         <div className="max-w-[320px] mx-auto bg-surface-container-lowest border-2 border-outline-variant rounded-t-[3rem] rounded-b-xl pt-8 pb-4 px-6">
           <div className="flex justify-end mb-6">
-            <div className="w-11 h-11 rounded-lg bg-surface-container border border-outline-variant flex items-center justify-center cursor-not-allowed">
+            <div className="w-11 h-11 rounded-lg bg-surface-container border border-outline-variant flex items-center justify-center">
               <span className="material-symbols-outlined text-outline" style={{ fontSize: '18px' }}>steering</span>
             </div>
           </div>
@@ -114,53 +153,23 @@ export default function SeatSelectionPage() {
           <div className="space-y-3">
             {rows.map((row, ri) => (
               <div key={ri} className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr 40px 1fr 1fr' }}>
-                {row.slice(0, 2).map((seat) => {
-                  const isSelected = selectedSeat?.id === seat.id
-                  return (
-                    <button
-                      key={seat.id ?? seat.seatNumber}
-                      onClick={() => toggleSeat(seat)}
-                      disabled={!seat.isAvailable || !seat.id}
-                      className={`w-11 h-11 rounded-lg text-label-md font-medium transition-colors relative ${
-                        !seat.isAvailable
-                          ? 'bg-surface-variant text-outline cursor-not-allowed'
-                          : isSelected
-                          ? 'bg-primary text-on-primary border border-primary'
-                          : 'bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high'
-                      }`}
-                    >
-                      {!seat.isAvailable ? (
-                        <span className="absolute inset-0 flex items-center justify-center">
-                          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>close</span>
-                        </span>
-                      ) : seat.seatNumber}
-                    </button>
-                  )
-                })}
-                <div className="w-10" />
-                {row.slice(2, 4).map((seat) => {
-                  const isSelected = selectedSeat?.id === seat.id
-                  return (
-                    <button
-                      key={seat.id ?? seat.seatNumber}
-                      onClick={() => toggleSeat(seat)}
-                      disabled={!seat.isAvailable || !seat.id}
-                      className={`w-11 h-11 rounded-lg text-label-md font-medium transition-colors relative ${
-                        !seat.isAvailable
-                          ? 'bg-surface-variant text-outline cursor-not-allowed'
-                          : isSelected
-                          ? 'bg-primary text-on-primary border border-primary'
-                          : 'bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high'
-                      }`}
-                    >
-                      {!seat.isAvailable ? (
-                        <span className="absolute inset-0 flex items-center justify-center">
-                          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>close</span>
-                        </span>
-                      ) : seat.seatNumber}
-                    </button>
-                  )
-                })}
+                {row.slice(0, 2).map((seat) => (
+                  <SeatButton
+                    key={seat.id ?? `${ri}-L-${seat.seatNumber}`}
+                    seat={seat}
+                    isSelected={selectedSeats.some((s) => s.id === seat.id)}
+                    onToggle={toggleSeat}
+                  />
+                ))}
+                <div />
+                {row.slice(2, 4).map((seat) => (
+                  <SeatButton
+                    key={seat.id ?? `${ri}-R-${seat.seatNumber}`}
+                    seat={seat}
+                    isSelected={selectedSeats.some((s) => s.id === seat.id)}
+                    onToggle={toggleSeat}
+                  />
+                ))}
               </div>
             ))}
           </div>
@@ -172,7 +181,7 @@ export default function SeatSelectionPage() {
             <span className="text-body-sm text-on-surface-variant">Libre</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-surface-variant border border-outline-variant" />
+            <div className="w-6 h-6 rounded bg-error-container/40 opacity-60" />
             <span className="text-body-sm text-on-surface-variant">Occupé</span>
           </div>
           <div className="flex items-center gap-2">
@@ -186,20 +195,22 @@ export default function SeatSelectionPage() {
         <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
           <div>
             <p className="text-body-sm text-on-surface-variant">
-              {selectedSeat ? `Siège ${selectedSeat.seatNumber}` : 'Aucun siège sélectionné'}
+              {selectedSeats.length === 0
+                ? 'Aucun siège sélectionné'
+                : `${selectedSeats.length} siège${selectedSeats.length > 1 ? 's' : ''} · ${selectedSeats.map((s) => s.seatNumber).join(', ')}`}
             </p>
             <p className="text-headline-sm text-on-surface">
-              {(trip?.price || 0).toLocaleString('fr-FR')} FCFA
+              {totalPrice.toLocaleString('fr-FR')} FCFA
             </p>
           </div>
           <button
             onClick={handleContinue}
-            disabled={!selectedSeat}
+            disabled={selectedSeats.length === 0}
             className={`bg-primary text-on-primary h-14 px-8 rounded-lg text-label-lg font-semibold transition-colors ${
-              !selectedSeat ? 'opacity-40 cursor-not-allowed' : 'hover:bg-primary-container'
+              selectedSeats.length === 0 ? 'opacity-40 cursor-not-allowed' : 'hover:bg-primary-container'
             }`}
           >
-            Continuer
+            Continuer {selectedSeats.length > 0 && `(${selectedSeats.length})`}
           </button>
         </div>
       </div>

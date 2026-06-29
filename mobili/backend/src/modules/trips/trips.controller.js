@@ -4,7 +4,10 @@ const tripsService = require('./trips.service')
 const searchSchema = z.object({
   from: z.string().min(1),
   to: z.string().min(1),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 })
 
 async function searchHandler(req, res, next) {

@@ -35,8 +35,10 @@ export default function HomePage() {
 
   function handleSearch(e) {
     e.preventDefault()
-    if (!from || !to || !date) return
-    navigate(`/search?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&date=${date}`)
+    if (!from || !to) return
+    const q = new URLSearchParams({ from, to })
+    if (date) q.set('date', date)
+    navigate(`/search?${q.toString()}`)
   }
 
   return (
@@ -85,13 +87,14 @@ export default function HomePage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-label-lg text-on-surface-variant mb-1">Date</label>
+                  <label className="block text-label-lg text-on-surface-variant mb-1">
+                    Date <span className="text-body-sm text-on-surface-variant font-normal">(optionnelle)</span>
+                  </label>
                   <input
                     type="date"
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
                     min={new Date().toISOString().split('T')[0]}
-                    required
                     className="w-full border border-outline-variant rounded-lg px-3 py-3 text-body-md text-on-surface bg-surface-container focus:outline-none focus:border-primary"
                   />
                 </div>

@@ -1,3 +1,4 @@
+import PropTypes from 'prop-types'
 import { useState, useEffect } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
@@ -19,6 +20,10 @@ function StatusBadge({ status }) {
       {cfg.label}
     </span>
   )
+}
+
+StatusBadge.propTypes = {
+  status: PropTypes.string.isRequired,
 }
 
 function ReservationRow({ reservation }) {
@@ -43,6 +48,14 @@ function ReservationRow({ reservation }) {
         </p>
         <StatusBadge status={reservation.status} />
       </div>
+      {reservation.status === 'PENDING' && (
+        <Link
+          to={`/payment?reservationId=${reservation.id}`}
+          className="shrink-0 bg-primary text-on-primary text-label-md px-3 py-1.5 rounded-lg hover:bg-primary-container transition-colors"
+        >
+          Payer
+        </Link>
+      )}
       {reservation.ticket?.id && (
         <Link
           to={`/ticket/${reservation.ticket.id}`}
@@ -53,6 +66,27 @@ function ReservationRow({ reservation }) {
       )}
     </div>
   )
+}
+
+ReservationRow.propTypes = {
+  reservation: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    status: PropTypes.string.isRequired,
+    totalAmount: PropTypes.number,
+    trip: PropTypes.shape({
+      route: PropTypes.shape({
+        origin: PropTypes.string,
+        destination: PropTypes.string,
+      }),
+      origin: PropTypes.string,
+      destination: PropTypes.string,
+      departureDate: PropTypes.string,
+      departureTime: PropTypes.string,
+    }),
+    ticket: PropTypes.shape({
+      id: PropTypes.string,
+    }),
+  }).isRequired,
 }
 
 export default function DashboardPage() {
@@ -71,8 +105,11 @@ export default function DashboardPage() {
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
 
-  const upcoming = reservations.find((r) => r.status === 'CONFIRMED')
-  const history = reservations.filter((r) => r.status !== 'CONFIRMED')
+  const now = new Date()
+  const upcoming = [...reservations]
+    .filter((r) => r.status === 'CONFIRMED' && new Date(r.trip?.departureDate) >= now)
+    .sort((a, b) => new Date(a.trip?.departureDate) - new Date(b.trip?.departureDate))[0]
+  const history = reservations.filter((r) => r !== upcoming)
 
   const initials = user
     ? `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}`.toUpperCase()
@@ -81,8 +118,8 @@ export default function DashboardPage() {
   const thisMonthCount = reservations.filter((r) => {
     if (!r.createdAt) return false
     const d = new Date(r.createdAt)
-    const now = new Date()
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+    const m = new Date()
+    return d.getMonth() === m.getMonth() && d.getFullYear() === m.getFullYear()
   }).length
 
   return (
@@ -106,7 +143,9 @@ export default function DashboardPage() {
 
               <div className="bg-surface-container rounded-xl p-4 mb-5 text-center">
                 <p className="text-headline-md text-on-surface font-bold">{thisMonthCount}</p>
-                <p className="text-body-sm text-on-surface-variant">trajet{thisMonthCount !== 1 ? 's' : ''} ce mois</p>
+                <p className="text-body-sm text-on-surface-variant">
+                  {thisMonthCount === 1 ? 'trajet ce mois' : 'trajets ce mois'}
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -115,14 +154,14 @@ export default function DashboardPage() {
                   className="w-full flex items-center gap-2 px-4 py-3 rounded-lg bg-secondary-container text-on-secondary-container text-label-lg font-medium hover:bg-secondary-fixed-dim transition-colors"
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>search</span>
-                  Nouveau trajet
+                  <span>Nouveau trajet</span>
                 </Link>
                 <button
                   onClick={logout}
                   className="w-full flex items-center gap-2 px-4 py-3 rounded-lg border border-outline-variant text-on-surface-variant text-label-lg hover:bg-surface-container transition-colors"
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>logout</span>
-                  Se déconnecter
+                  <span>Se déconnecter</span>
                 </button>
               </div>
             </div>
@@ -149,7 +188,7 @@ export default function DashboardPage() {
               <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 shadow-card">
                 <h2 className="text-headline-sm text-on-surface mb-4 flex items-center gap-2">
                   <span className="material-symbols-outlined text-primary" style={{ fontSize: '22px' }}>flight_takeoff</span>
-                  Voyage à venir
+                  <span>Voyage à venir</span>
                 </h2>
                 {upcoming ? (
                   <div className="bg-primary-fixed/20 border border-primary-fixed rounded-xl p-4">
@@ -179,7 +218,7 @@ export default function DashboardPage() {
                           className="flex items-center gap-1 text-primary text-label-lg font-medium hover:underline"
                         >
                           <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>receipt</span>
-                          Voir le billet
+                          <span>Voir le billet</span>
                         </Link>
                       )}
                     </div>
@@ -204,7 +243,7 @@ export default function DashboardPage() {
               <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 shadow-card">
                 <h2 className="text-headline-sm text-on-surface mb-4 flex items-center gap-2">
                   <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '22px' }}>history</span>
-                  Historique
+                  <span>Historique</span>
                 </h2>
                 {history.length === 0 ? (
                   <p className="text-body-md text-on-surface-variant text-center py-6">

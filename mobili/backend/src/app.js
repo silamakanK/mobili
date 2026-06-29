@@ -36,6 +36,8 @@ app.use(
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   })
 )
+// Raw body requis pour la vérification de signature Stripe — doit précéder express.json()
+app.use('/api/payments/stripe-webhook', express.raw({ type: 'application/json' }))
 app.use(express.json())
 app.use(globalLimiter)
 
