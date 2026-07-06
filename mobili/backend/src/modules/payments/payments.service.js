@@ -285,6 +285,7 @@ async function _processResult({ reservationCode, transactionId, success }) {
     where: { id: reservation.payment.id },
     data: { status: 'FAILED', transactionId: transactionId ?? undefined },
   })
+  logger.warn('Paiement échoué', { reservationCode, transactionId })
   return { message: 'Paiement échoué.' }
 }
 
@@ -355,4 +356,99 @@ async function generateTicket(reservationId) {
   return create(reservationId)
 }
 
-module.exports = { initiatePayment, handleWebhook, handleStripeWebhook, getPaymentStatus }
+// Vérifie manuellement le statut d'un paiement auprès de Stripe / CinetPay.
+// Utile quand le webhook n'a pas été reçu ou que le statut local est PENDING/FAILED.
+async function reverifyPayment(paymentId, userId) {
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: {
+      reservation: { select: { userId: true, reservationCode: true } },
+    },
+  })
+  if (!payment) {
+    const e = new Error('Paiement introuvable.')
+    e.status = 404
+    throw e
+  }
+  if (payment.reservation.userId !== userId) {
+    const e = new Error('Accès non autorisé.')
+    e.status = 403
+    throw e
+  }
+  if (payment.status === 'CONFIRMED') {
+    return { alreadyConfirmed: true, status: 'CONFIRMED' }
+  }
+
+  // Vérification Stripe
+  if (payment.transactionId?.startsWith('cs_') && stripeConfigured()) {
+    try {
+      const stripe = getStripe()
+      const session = await stripe.checkout.sessions.retrieve(payment.transactionId)
+
+      if (session.payment_status === 'paid') {
+        await _processResult({
+          reservationCode: payment.reservation.reservationCode,
+          transactionId: session.id,
+          success: true,
+        })
+        logger.info('Paiement re-vérifié : confirmé via Stripe', { paymentId })
+        return { updated: true, status: 'CONFIRMED' }
+      }
+
+      // Session expirée
+      if (session.status === 'expired') {
+        await prisma.payment.update({ where: { id: paymentId }, data: { status: 'EXPIRED' } })
+        return { updated: true, status: 'EXPIRED' }
+      }
+
+      // Annulée par le voyageur
+      if (session.status === 'complete' && session.payment_status === 'unpaid') {
+        await prisma.payment.update({ where: { id: paymentId }, data: { status: 'CANCELLED' } })
+        return { updated: true, status: 'CANCELLED' }
+      }
+    } catch (err) {
+      logger.error('reverifyPayment — Stripe error', { error: err.message, paymentId })
+    }
+  }
+
+  // Vérification CinetPay
+  if (payment.transactionId && cinetpayConfigured()) {
+    try {
+      const check = await checkPayment(payment.transactionId)
+      if (check?.data?.status === 'ACCEPTED') {
+        await _processResult({
+          reservationCode: payment.reservation.reservationCode,
+          transactionId: payment.transactionId,
+          success: true,
+        })
+        return { updated: true, status: 'CONFIRMED' }
+      }
+    } catch (err) {
+      logger.error('reverifyPayment — CinetPay error', { error: err.message, paymentId })
+    }
+  }
+
+  logger.info('reverifyPayment — statut inchangé', { paymentId, status: payment.status })
+  return { updated: false, status: payment.status }
+}
+
+// Expire les paiements PENDING plus vieux que TTL (1h par défaut).
+// À appeler via cron ou manuellement en Super Admin.
+async function expireOldPendingPayments({ olderThanMinutes = 60 } = {}) {
+  const cutoff = new Date(Date.now() - olderThanMinutes * 60 * 1000)
+  const result = await prisma.payment.updateMany({
+    where: { status: 'PENDING', createdAt: { lt: cutoff } },
+    data: { status: 'EXPIRED' },
+  })
+  logger.info(`expireOldPendingPayments: ${result.count} paiements expirés`)
+  return { expired: result.count }
+}
+
+module.exports = {
+  initiatePayment,
+  handleWebhook,
+  handleStripeWebhook,
+  getPaymentStatus,
+  reverifyPayment,
+  expireOldPendingPayments,
+}

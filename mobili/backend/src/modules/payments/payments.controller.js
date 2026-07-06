@@ -47,9 +47,30 @@ async function getPaymentStatusHandler(req, res, next) {
   }
 }
 
+async function reverifyPaymentHandler(req, res, next) {
+  try {
+    const result = await service.reverifyPayment(req.params.id, req.user.id)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+}
+
+async function expireOldPaymentsHandler(req, res, next) {
+  try {
+    const olderThanMinutes = Number(req.query.olderThanMinutes) || 60
+    const result = await service.expireOldPendingPayments({ olderThanMinutes })
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+}
+
 module.exports = {
   initiatePaymentHandler,
   webhookHandler,
   stripeWebhookHandler,
   getPaymentStatusHandler,
+  reverifyPaymentHandler,
+  expireOldPaymentsHandler,
 }

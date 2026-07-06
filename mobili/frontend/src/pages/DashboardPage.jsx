@@ -1,10 +1,10 @@
 import PropTypes from 'prop-types'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import BottomNav from '../components/BottomNav'
 import { useAuth } from '../contexts/AuthContext'
-import { getMyReservations } from '../services/reservations'
+import { getMyReservations, cancelReservation } from '../services/reservations'
 
 const STATUS_CONFIG = {
   CONFIRMED: { label: 'Payé', className: 'bg-secondary-container text-on-secondary-container' },
@@ -26,43 +26,91 @@ StatusBadge.propTypes = {
   status: PropTypes.string.isRequired,
 }
 
-function ReservationRow({ reservation }) {
+function ReservationRow({ reservation, onCancel }) {
+  const [cancelling, setCancelling] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const trip = reservation.trip
   const origin = trip?.route?.origin || trip?.origin || '—'
   const destination = trip?.route?.destination || trip?.destination || '—'
 
+  async function handleConfirmCancel() {
+    setCancelling(true)
+    try {
+      await cancelReservation(reservation.id)
+      onCancel()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Erreur lors de l\'annulation.')
+      setCancelling(false)
+      setConfirmOpen(false)
+    }
+  }
+
   return (
-    <div className="flex items-center gap-4 py-3 border-b border-outline-variant last:border-0">
-      <div className="flex-1 min-w-0">
-        <p className="text-body-md text-on-surface font-medium truncate">
-          {origin} → {destination}
-        </p>
-        <p className="text-body-sm text-on-surface-variant">
-          {trip?.departureDate ? new Date(trip.departureDate).toLocaleDateString('fr-FR') : '—'}
-          {trip?.departureTime ? ` · ${trip.departureTime}` : ''}
-        </p>
+    <div className="border-b border-outline-variant last:border-0">
+      <div className="flex items-center gap-3 py-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-body-md text-on-surface font-medium truncate">
+            {origin} → {destination}
+          </p>
+          <p className="text-body-sm text-on-surface-variant">
+            {trip?.departureDate ? new Date(trip.departureDate).toLocaleDateString('fr-FR') : '—'}
+            {trip?.departureTime ? ` · ${trip.departureTime}` : ''}
+          </p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-body-md text-on-surface mb-1">
+            {(reservation.totalAmount || 0).toLocaleString('fr-FR')} FCFA
+          </p>
+          <StatusBadge status={reservation.status} />
+        </div>
+        {reservation.status === 'PENDING' && (
+          <>
+            <Link
+              to={`/payment?reservationId=${reservation.id}`}
+              className="shrink-0 bg-primary text-on-primary text-label-md px-3 py-1.5 rounded-lg hover:bg-primary-container transition-colors"
+            >
+              Payer
+            </Link>
+            <button
+              onClick={() => setConfirmOpen((v) => !v)}
+              disabled={cancelling}
+              title="Annuler la réservation"
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-error hover:bg-error-container/20 transition-colors disabled:opacity-40"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>cancel</span>
+            </button>
+          </>
+        )}
+        {reservation.ticket?.id && (
+          <Link
+            to={`/ticket/${reservation.ticket.id}`}
+            className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container transition-colors"
+          >
+            <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '18px' }}>receipt</span>
+          </Link>
+        )}
       </div>
-      <div className="text-right shrink-0">
-        <p className="text-body-md text-on-surface mb-1">
-          {(reservation.totalAmount || 0).toLocaleString('fr-FR')} FCFA
-        </p>
-        <StatusBadge status={reservation.status} />
-      </div>
-      {reservation.status === 'PENDING' && (
-        <Link
-          to={`/payment?reservationId=${reservation.id}`}
-          className="shrink-0 bg-primary text-on-primary text-label-md px-3 py-1.5 rounded-lg hover:bg-primary-container transition-colors"
-        >
-          Payer
-        </Link>
-      )}
-      {reservation.ticket?.id && (
-        <Link
-          to={`/ticket/${reservation.ticket.id}`}
-          className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container transition-colors"
-        >
-          <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '18px' }}>receipt</span>
-        </Link>
+
+      {confirmOpen && (
+        <div className="flex items-center justify-between gap-3 pb-3 px-0">
+          <p className="text-body-sm text-on-surface-variant">Confirmer l&apos;annulation de cette réservation ?</p>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={handleConfirmCancel}
+              disabled={cancelling}
+              className="bg-error text-on-error text-label-md px-3 py-1.5 rounded-lg hover:opacity-90 transition disabled:opacity-50 flex items-center gap-1"
+            >
+              {cancelling && <span className="animate-spin w-3 h-3 border-2 border-on-error border-t-transparent rounded-full" />}
+              Oui, annuler
+            </button>
+            <button
+              onClick={() => setConfirmOpen(false)}
+              className="text-on-surface-variant text-label-md px-3 py-1.5 rounded-lg hover:bg-surface-container transition"
+            >
+              Garder
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -87,6 +135,7 @@ ReservationRow.propTypes = {
       id: PropTypes.string,
     }),
   }).isRequired,
+  onCancel: PropTypes.func.isRequired,
 }
 
 export default function DashboardPage() {
@@ -95,13 +144,17 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  useEffect(() => {
-    if (!isAuthenticated) return
+  const loadReservations = useCallback(() => {
     getMyReservations()
       .then((res) => setReservations(res.data?.data || res.data || []))
       .catch(() => setError('Impossible de charger vos réservations.'))
       .finally(() => setLoading(false))
-  }, [isAuthenticated])
+  }, [])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    loadReservations()
+  }, [isAuthenticated, loadReservations])
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
 
@@ -252,7 +305,7 @@ export default function DashboardPage() {
                 ) : (
                   <div>
                     {history.map((r) => (
-                      <ReservationRow key={r.id} reservation={r} />
+                      <ReservationRow key={r.id} reservation={r} onCancel={loadReservations} />
                     ))}
                   </div>
                 )}

@@ -79,6 +79,7 @@ export default function PaymentPage() {
 
       if (payment?.redirectUrl) {
         sessionStorage.setItem('pendingPaymentId', payment.paymentId)
+        sessionStorage.setItem('pendingReservationIds', JSON.stringify(reservationIds))
         window.location.assign(payment.redirectUrl)
         return
       }
@@ -93,7 +94,10 @@ export default function PaymentPage() {
         })
       }
 
-      if (reservationIds.length > 0) {
+      if (reservationIds.length > 1) {
+        // Multi-sièges → dashboard (tous les billets visibles dans les réservations)
+        navigate('/dashboard')
+      } else if (reservationIds.length === 1) {
         const updatedRes = await getReservationById(reservationIds[0])
         const updated = updatedRes.data?.data || updatedRes.data
         navigate(updated?.ticket?.id ? `/ticket/${updated.ticket.id}` : '/dashboard')

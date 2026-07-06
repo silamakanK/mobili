@@ -8,6 +8,7 @@ import { listCompanyTrips, createTrip, updateTrip, cancelTrip, getTripPassengers
 import { listUsers, createAgent, updateUser } from '../services/users'
 import { listCompanyReservations } from '../services/reservations'
 import { listSeats, updateSeat } from '../services/seats'
+import { listRecurringTrips, createRecurringTrip, generateTrips, deleteRecurringTrip } from '../services/recurring-trips'
 
 const ADMIN_ROLES = ['ADMIN_COMPANY', 'SUPER_ADMIN']
 
@@ -46,16 +47,18 @@ function ErrorMsg({ msg }) {
 function DashboardSection({ user, onNavigate }) {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10))
 
   useEffect(() => {
+    setLoading(true)
     const fetch = user.role === 'SUPER_ADMIN'
-      ? getGlobalStats()
-      : getCompanyStats(user.companyId)
+      ? getGlobalStats(selectedDate)
+      : getCompanyStats(user.companyId, selectedDate)
     fetch
       .then((res) => setStats(res.data?.data))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [user])
+  }, [user, selectedDate])
 
   const statCards = [
     {
@@ -109,9 +112,13 @@ function DashboardSection({ user, onNavigate }) {
         </div>
         <div className="flex items-center gap-2 bg-surface-container border border-outline-variant rounded-xl px-3 py-2">
           <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '16px' }}>calendar_today</span>
-          <span className="text-body-sm text-on-surface-variant">
-            {new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
-          </span>
+          <input
+            type="date"
+            value={selectedDate}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="text-body-sm text-on-surface-variant bg-transparent border-none outline-none cursor-pointer"
+          />
         </div>
       </div>
 
@@ -632,7 +639,11 @@ function TrajetsSection() {
 
   const handleEditOpen = (t) => {
     setEditingTrip(t)
-    setEditForm({ price: String(t.price), departureTime: t.departureTime })
+    setEditForm({
+      price: String(t.price),
+      departureTime: t.departureTime,
+      departureDate: t.departureDate ? new Date(t.departureDate).toISOString().slice(0, 10) : '',
+    })
     setEditError('')
   }
 
@@ -644,6 +655,7 @@ function TrajetsSection() {
       await updateTrip(editingTrip.id, {
         price: Number(editForm.price),
         departureTime: editForm.departureTime,
+        departureDate: editForm.departureDate,
       })
       setEditingTrip(null)
       load()
@@ -693,6 +705,16 @@ function TrajetsSection() {
                   min={100}
                   value={editForm.price}
                   onChange={(e) => setEditForm((f) => ({ ...f, price: e.target.value }))}
+                  className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="text-label-lg text-on-surface-variant block mb-1">Date de départ</label>
+                <input
+                  required
+                  type="date"
+                  value={editForm.departureDate}
+                  onChange={(e) => setEditForm((f) => ({ ...f, departureDate: e.target.value }))}
                   className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
@@ -1132,7 +1154,7 @@ function PassengersModal({ trip, onClose }) {
                   {data.passengers.map((p) => (
                     <tr key={p.reservationCode} className="border-b border-outline-variant last:border-0 hover:bg-surface-container transition-colors">
                       <td className="px-5 py-3">
-                        <span className={`text-label-md px-2 py-0.5 rounded-full ${p.seatType === 'VIP' ? 'bg-tertiary-container text-on-tertiary-container' : 'bg-surface-container text-on-surface-variant'}`}>
+                        <span className="text-label-md px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant">
                           {p.seat}
                         </span>
                       </td>
@@ -1192,12 +1214,12 @@ function PlacesSection() {
       .finally(() => setLoadingSeats(false))
   }, [selectedVehicleId])
 
-  const handleToggleType = async (seat) => {
+  const handleToggleAvailability = async (seat) => {
     setUpdating(seat.id)
     try {
-      const newType = seat.type === 'VIP' ? 'STANDARD' : 'VIP'
-      await updateSeat(seat.id, { type: newType })
-      setSeats((prev) => prev.map((s) => s.id === seat.id ? { ...s, type: newType } : s))
+      const newAvailability = !seat.isAvailable
+      await updateSeat(seat.id, { isAvailable: newAvailability })
+      setSeats((prev) => prev.map((s) => s.id === seat.id ? { ...s, isAvailable: newAvailability } : s))
     } catch (err) {
       alert(err.response?.data?.error || 'Erreur.')
     } finally {
@@ -1206,8 +1228,8 @@ function PlacesSection() {
   }
 
   const selectedVehicle = vehicles.find((v) => v.id === selectedVehicleId)
-  const vipCount = seats.filter((s) => s.type === 'VIP').length
   const availableCount = seats.filter((s) => s.isAvailable).length
+  const blockedCount = seats.length - availableCount
 
   return (
     <>
@@ -1235,8 +1257,7 @@ function PlacesSection() {
         {selectedVehicle && !loadingSeats && seats.length > 0 && (
           <div className="flex flex-wrap gap-4 mt-3 text-body-sm text-on-surface-variant">
             <span>{availableCount}/{seats.length} places disponibles</span>
-            <span>{vipCount} place{vipCount !== 1 ? 's' : ''} VIP</span>
-            <span>{seats.length - vipCount} place{(seats.length - vipCount) !== 1 ? 's' : ''} Standard</span>
+            <span>{blockedCount} place{blockedCount !== 1 ? 's' : ''} bloquée{blockedCount !== 1 ? 's' : ''}</span>
           </div>
         )}
       </div>
@@ -1252,35 +1273,29 @@ function PlacesSection() {
             <>
               <div className="flex flex-wrap gap-4 mb-5 text-body-sm text-on-surface-variant">
                 <span className="flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded bg-surface-container border border-outline-variant inline-block" />
-                  Standard
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded bg-tertiary-container inline-block" />
-                  VIP
+                  <span className="w-4 h-4 rounded bg-secondary-container inline-block" />
+                  Disponible
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="w-4 h-4 rounded bg-error-container/30 inline-block" />
-                  Réservé
+                  Bloqué
                 </span>
               </div>
               <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-2">
                 {seats.map((seat) => (
                   <button
                     key={seat.id}
-                    onClick={() => !seat.isAvailable ? null : handleToggleType(seat)}
-                    disabled={updating === seat.id || !seat.isAvailable}
+                    onClick={() => handleToggleAvailability(seat)}
+                    disabled={updating === seat.id}
                     title={seat.isAvailable
-                      ? `Siège ${seat.seatNumber} — ${seat.type} (clic pour basculer en ${seat.type === 'VIP' ? 'Standard' : 'VIP'})`
-                      : `Siège ${seat.seatNumber} — Réservé`
+                      ? `Siège ${seat.seatNumber} — Disponible (clic pour bloquer)`
+                      : `Siège ${seat.seatNumber} — Bloqué (clic pour libérer)`
                     }
                     className={`
-                      flex flex-col items-center justify-center rounded-lg py-2 px-1 border transition text-label-sm font-medium gap-0.5
-                      ${!seat.isAvailable
-                        ? 'bg-error-container/20 border-error-container/40 text-error cursor-not-allowed opacity-60'
-                        : seat.type === 'VIP'
-                          ? 'bg-tertiary-container text-on-tertiary-container border-tertiary hover:opacity-75 cursor-pointer'
-                          : 'bg-surface-container text-on-surface-variant border-outline-variant hover:bg-surface-container-high cursor-pointer'
+                      flex flex-col items-center justify-center rounded-lg py-2 px-1 border transition text-label-sm font-medium gap-0.5 cursor-pointer
+                      ${seat.isAvailable
+                        ? 'bg-secondary-container text-on-secondary-container border-secondary/30 hover:opacity-75'
+                        : 'bg-error-container/20 border-error-container/40 text-error hover:opacity-75'
                       }
                       ${updating === seat.id ? 'opacity-40' : ''}
                     `}
@@ -1291,7 +1306,7 @@ function PlacesSection() {
                 ))}
               </div>
               <p className="text-body-sm text-on-surface-variant mt-4">
-                Cliquez sur un siège disponible pour basculer entre Standard et VIP.
+                Cliquez sur un siège pour le bloquer ou le libérer.
               </p>
             </>
           )}
@@ -1441,19 +1456,28 @@ function ReservationsSection() {
 }
 
 // ── Rapports ───────────────────────────────────────────────────────────────────
+const PERIODS = [
+  { key: 'daily', label: "Aujourd'hui" },
+  { key: 'monthly', label: 'Ce mois' },
+  { key: 'annual', label: 'Cette année' },
+]
+
 function RapportsSection({ user }) {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [period, setPeriod] = useState('monthly')
 
   useEffect(() => {
-    const fetch = user.role === 'SUPER_ADMIN'
-      ? getGlobalStats()
-      : getCompanyStats(user.companyId)
-    fetch
+    setLoading(true)
+    const params = { period }
+    const req = user.role === 'SUPER_ADMIN'
+      ? getGlobalStats(params)
+      : getCompanyStats(user.companyId, params)
+    req
       .then((res) => setStats(res.data?.data))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [user])
+  }, [user, period])
 
   const kpis = [
     { label: 'Total réservations', value: stats?.totalReservations, icon: 'confirmation_number', color: 'text-primary' },
@@ -1464,14 +1488,49 @@ function RapportsSection({ user }) {
     { label: 'Véhicules', value: stats?.vehicles, icon: 'airport_shuttle', color: 'text-tertiary' },
   ]
 
+  const rates = [
+    { label: 'Succès paiement', value: stats?.paymentSuccessRate != null ? `${stats.paymentSuccessRate}%` : null, icon: 'payments', color: 'text-secondary' },
+    { label: "Taux d'annulation", value: stats?.cancellationRate != null ? `${stats.cancellationRate}%` : null, icon: 'cancel', color: 'text-error' },
+    { label: 'Taux de remplissage', value: stats?.fillRate != null ? `${stats.fillRate}%` : null, icon: 'event_seat', color: 'text-tertiary' },
+  ]
+
+  const revenueLabel = period === 'daily' ? "Paiements confirmés aujourd'hui" : period === 'monthly' ? 'Paiements confirmés ce mois' : 'Paiements confirmés cette année'
+
   return (
     <>
-      <div className="mb-6">
-        <h1 className="text-headline-md text-on-surface">Rapports</h1>
-        <p className="text-body-sm text-on-surface-variant mt-1">Indicateurs de performance de votre compagnie.</p>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-4">
+        <div>
+          <h1 className="text-headline-md text-on-surface">Rapports</h1>
+          <p className="text-body-sm text-on-surface-variant mt-1">Indicateurs de performance de votre compagnie.</p>
+        </div>
+        <div className="flex gap-2 sm:ml-auto flex-wrap">
+          {PERIODS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setPeriod(key)}
+              className={`px-3 py-1.5 rounded-lg text-label-md transition-colors ${
+                period === key
+                  ? 'bg-primary text-on-primary'
+                  : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+      {stats?.dailySales != null && (
+        <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card p-5 mb-6">
+          <h2 className="text-title-sm text-on-surface-variant mb-1">Chiffre d&apos;affaires</h2>
+          <p className="text-display-sm text-primary font-bold">
+            {(stats.dailySales || 0).toLocaleString('fr-FR')} FCFA
+          </p>
+          <p className="text-body-sm text-on-surface-variant mt-1">{revenueLabel}</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
         {kpis.map(({ label, value, icon, color }) => (
           <div key={label} className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card p-5">
             <span className={`material-symbols-outlined ${color} mb-3 block`} style={{ fontSize: '28px' }}>{icon}</span>
@@ -1485,13 +1544,265 @@ function RapportsSection({ user }) {
         ))}
       </div>
 
-      {stats?.dailySales != null && (
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        {rates.map(({ label, value, icon, color }) => (
+          <div key={label} className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card p-5">
+            <span className={`material-symbols-outlined ${color} mb-3 block`} style={{ fontSize: '28px' }}>{icon}</span>
+            {loading ? (
+              <div className="h-8 bg-surface-container rounded animate-pulse mb-1" />
+            ) : (
+              <p className="text-headline-sm text-on-surface mb-1">{value ?? '—'}</p>
+            )}
+            <p className="text-body-sm text-on-surface-variant">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {stats?.topRoutes?.length > 0 && (
         <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card p-5">
-          <h2 className="text-headline-sm text-on-surface mb-2">Ventes du jour</h2>
-          <p className="text-display-sm text-primary font-bold">
-            {stats.dailySales.toLocaleString('fr-FR')} FCFA
-          </p>
-          <p className="text-body-sm text-on-surface-variant mt-1">Paiements confirmés aujourd&apos;hui</p>
+          <h2 className="text-headline-sm text-on-surface mb-4">Top lignes</h2>
+          <div className="space-y-3">
+            {stats.topRoutes.map((route, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-label-sm flex items-center justify-center font-bold shrink-0">{i + 1}</span>
+                <span className="flex-1 text-body-md text-on-surface truncate">{route.label}</span>
+                <span className="text-label-md text-on-surface-variant shrink-0">{route.count} rés.</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── Trajets Récurrents ─────────────────────────────────────────────────────────
+const DAY_LABELS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi']
+
+function RecurringTripsSection({ user }) {
+  const [templates, setTemplates] = useState([])
+  const [routes, setRoutes] = useState([])
+  const [vehicles, setVehicles] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ routeId: '', vehicleId: '', dayOfWeek: '1', departureTime: '08:00', price: '', validFrom: '' })
+  const [submitting, setSubmitting] = useState(false)
+  const [generating, setGenerating] = useState(null)
+  const [error, setError] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [tRes, rRes, vRes] = await Promise.all([
+        listRecurringTrips(user.companyId),
+        listRoutes(),
+        listVehicles(),
+      ])
+      setTemplates(tRes.data?.data || [])
+      setRoutes(rRes.data?.data || [])
+      setVehicles(vRes.data?.data || [])
+    } catch {
+      setError('Erreur lors du chargement.')
+    } finally {
+      setLoading(false)
+    }
+  }, [user.companyId])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleCreate(e) {
+    e.preventDefault()
+    setSubmitting(true)
+    setError(null)
+    try {
+      await createRecurringTrip({
+        ...form,
+        dayOfWeek: parseInt(form.dayOfWeek, 10),
+        price: parseInt(form.price, 10),
+        validFrom: form.validFrom ? new Date(form.validFrom).toISOString() : undefined,
+      })
+      setShowForm(false)
+      setForm({ routeId: '', vehicleId: '', dayOfWeek: '1', departureTime: '08:00', price: '', validFrom: '' })
+      load()
+    } catch (err) {
+      setError(err.response?.data?.error || 'Erreur lors de la création.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleGenerate(id) {
+    setGenerating(id)
+    setError(null)
+    try {
+      const res = await generateTrips(id, 4)
+      const created = res.data?.data?.created ?? 0
+      alert(`${created} trajet(s) généré(s) pour les 4 prochaines semaines.`)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Erreur lors de la génération.')
+    } finally {
+      setGenerating(null)
+    }
+  }
+
+  async function handleDeactivate(id) {
+    if (!window.confirm('Désactiver ce modèle de trajet récurrent ?')) return
+    try {
+      await deleteRecurringTrip(id)
+      load()
+    } catch {
+      setError('Erreur lors de la désactivation.')
+    }
+  }
+
+  return (
+    <>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-4">
+        <div>
+          <h1 className="text-headline-md text-on-surface">Trajets récurrents</h1>
+          <p className="text-body-sm text-on-surface-variant mt-1">Modèles de trajets générés automatiquement chaque semaine.</p>
+        </div>
+        <button
+          onClick={() => setShowForm((s) => !s)}
+          className="flex items-center gap-2 bg-primary text-on-primary px-4 py-2.5 rounded-xl text-label-lg hover:opacity-90 transition font-medium sm:ml-auto"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>{showForm ? 'close' : 'add'}</span>
+          {showForm ? 'Annuler' : 'Nouveau modèle'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-error-container/20 border border-error/30 rounded-xl text-error text-body-sm">{error}</div>
+      )}
+
+      {showForm && (
+        <form onSubmit={handleCreate} className="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <h2 className="text-title-md text-on-surface col-span-full">Nouveau modèle de trajet récurrent</h2>
+          <div>
+            <label className="text-label-md text-on-surface-variant mb-1 block">Ligne</label>
+            <select
+              required
+              value={form.routeId}
+              onChange={(e) => setForm((f) => ({ ...f, routeId: e.target.value }))}
+              className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface text-on-surface"
+            >
+              <option value="">Sélectionner une ligne</option>
+              {routes.map((r) => (
+                <option key={r.id} value={r.id}>{r.origin} → {r.destination}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-label-md text-on-surface-variant mb-1 block">Véhicule</label>
+            <select
+              required
+              value={form.vehicleId}
+              onChange={(e) => setForm((f) => ({ ...f, vehicleId: e.target.value }))}
+              className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface text-on-surface"
+            >
+              <option value="">Sélectionner un véhicule</option>
+              {vehicles.map((v) => (
+                <option key={v.id} value={v.id}>{v.registrationNumber} ({v.totalSeats} places)</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-label-md text-on-surface-variant mb-1 block">Jour de la semaine</label>
+            <select
+              value={form.dayOfWeek}
+              onChange={(e) => setForm((f) => ({ ...f, dayOfWeek: e.target.value }))}
+              className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface text-on-surface"
+            >
+              {DAY_LABELS.map((label, i) => (
+                <option key={i} value={String(i)}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-label-md text-on-surface-variant mb-1 block">Heure de départ</label>
+            <input
+              type="time"
+              required
+              value={form.departureTime}
+              onChange={(e) => setForm((f) => ({ ...f, departureTime: e.target.value }))}
+              className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface text-on-surface"
+            />
+          </div>
+          <div>
+            <label className="text-label-md text-on-surface-variant mb-1 block">Prix (FCFA)</label>
+            <input
+              type="number"
+              required
+              min="0"
+              value={form.price}
+              onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+              placeholder="ex : 15000"
+              className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface text-on-surface"
+            />
+          </div>
+          <div>
+            <label className="text-label-md text-on-surface-variant mb-1 block">Valide à partir du (optionnel)</label>
+            <input
+              type="date"
+              value={form.validFrom}
+              onChange={(e) => setForm((f) => ({ ...f, validFrom: e.target.value }))}
+              className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface text-on-surface"
+            />
+          </div>
+          <div className="col-span-full flex justify-end gap-3">
+            <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 rounded-xl text-label-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container transition">
+              Annuler
+            </button>
+            <button type="submit" disabled={submitting} className="px-4 py-2 rounded-xl bg-primary text-on-primary text-label-lg hover:opacity-90 transition disabled:opacity-50">
+              {submitting ? 'Création…' : 'Créer le modèle'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {loading ? (
+        <Spinner />
+      ) : templates.length === 0 ? (
+        <EmptyState icon="repeat" text="Aucun modèle de trajet récurrent." />
+      ) : (
+        <div className="space-y-3">
+          {templates.map((t) => (
+            <div key={t.id} className="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="text-title-sm text-on-surface font-medium">
+                  {t.route?.origin ?? '?'} → {t.route?.destination ?? '?'}
+                </p>
+                <p className="text-body-sm text-on-surface-variant mt-0.5">
+                  {DAY_LABELS[t.dayOfWeek]} à {t.departureTime} · {t.vehicle?.registrationNumber ?? '?'} · {(t.price ?? 0).toLocaleString('fr-FR')} FCFA
+                </p>
+                <p className="text-label-sm text-on-surface-variant mt-0.5">
+                  {t._count?.trips ?? 0} trajet(s) généré(s) ·{' '}
+                  {t.isActive
+                    ? <span className="text-secondary">Actif</span>
+                    : <span className="text-error">Inactif</span>}
+                </p>
+              </div>
+              <div className="flex gap-2 shrink-0 flex-wrap">
+                <button
+                  onClick={() => handleGenerate(t.id)}
+                  disabled={generating === t.id || !t.isActive}
+                  className="flex items-center gap-1 px-3 py-2 rounded-lg bg-primary/10 text-primary text-label-md hover:bg-primary/20 transition disabled:opacity-40"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>auto_awesome</span>
+                  {generating === t.id ? 'Génération…' : 'Générer 4 sem.'}
+                </button>
+                {t.isActive && (
+                  <button
+                    onClick={() => handleDeactivate(t.id)}
+                    className="flex items-center gap-1 px-3 py-2 rounded-lg bg-error/10 text-error text-label-md hover:bg-error/20 transition"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>block</span>
+                    Désactiver
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </>
@@ -1500,7 +1811,7 @@ function RapportsSection({ user }) {
 
 // ── Page principale ────────────────────────────────────────────────────────────
 export default function AdminPage() {
-  const { isAuthenticated, user } = useAuth()
+  const { isAuthenticated, user, logout } = useAuth()
   const [activeSection, setActiveSection] = useState('dashboard')
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
@@ -1515,6 +1826,7 @@ export default function AdminPage() {
     { key: 'reservations', icon: 'confirmation_number', label: 'Réservations' },
     { key: 'agents', icon: 'badge', label: 'Agents' },
     { key: 'rapports', icon: 'bar_chart', label: 'Rapports' },
+    { key: 'trajets-recurrents', icon: 'repeat', label: 'Trajets récurrents' },
   ]
 
   return (
@@ -1563,11 +1875,7 @@ export default function AdminPage() {
 
         {/* Footer */}
         <div className="px-3 py-4 border-t border-outline-variant">
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-body-md text-on-surface-variant hover:bg-surface-container transition-colors text-left">
-            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>settings</span>
-            Paramètres
-          </button>
-          <div className="px-3 pt-3 flex items-center gap-3">
+          <div className="px-3 pb-3 flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
               <span className="text-label-lg text-primary font-bold">{user?.firstName?.[0]}</span>
             </div>
@@ -1576,6 +1884,13 @@ export default function AdminPage() {
               <p className="text-label-sm text-on-surface-variant opacity-70 truncate">{user?.role}</p>
             </div>
           </div>
+          <button
+            onClick={logout}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-body-md text-error hover:bg-error-container/20 transition-colors text-left"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>logout</span>
+            Se déconnecter
+          </button>
         </div>
       </aside>
 
@@ -1585,6 +1900,13 @@ export default function AdminPage() {
           <span className="material-symbols-outlined text-on-primary" style={{ fontSize: '16px' }}>directions_bus</span>
         </div>
         <p className="text-primary font-bold text-title-md flex-1">Gestion Mobili</p>
+        <button
+          onClick={logout}
+          className="flex items-center gap-1 text-error hover:bg-error-container/20 px-2 py-1 rounded-lg transition-colors"
+          title="Se déconnecter"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>logout</span>
+        </button>
       </div>
 
       {/* Mobile bottom nav */}
@@ -1613,6 +1935,7 @@ export default function AdminPage() {
         {activeSection === 'reservations' && <ReservationsSection />}
         {activeSection === 'agents' && <AgentsSection />}
         {activeSection === 'rapports' && <RapportsSection user={user} />}
+        {activeSection === 'trajets-recurrents' && <RecurringTripsSection user={user} />}
       </main>
     </div>
   )

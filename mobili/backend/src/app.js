@@ -54,6 +54,7 @@ app.use('/api/vehicles', require('./modules/vehicles/vehicles.router'))
 app.use('/api/seats', require('./modules/seats/seats.router'))
 app.use('/api/users', require('./modules/users/users.router'))
 app.use('/api/stats', require('./modules/stats/stats.router'))
+app.use('/api/recurring-trips', require('./modules/recurring-trips/recurring-trips.router'))
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
 
