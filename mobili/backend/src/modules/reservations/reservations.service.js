@@ -1,9 +1,10 @@
+const { randomInt } = require('node:crypto')
 const prisma = require('../../config/prisma')
 
 function generateReservationCode() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   let code = 'MOB-'
-  for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)]
+  for (let i = 0; i < 8; i++) code += chars[randomInt(chars.length)]
   return code
 }
 

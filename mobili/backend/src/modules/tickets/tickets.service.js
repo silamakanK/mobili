@@ -1,3 +1,4 @@
+const { randomInt } = require('node:crypto')
 const QRCode = require('qrcode')
 const PDFDocument = require('pdfkit')
 const prisma = require('../../config/prisma')
@@ -5,7 +6,7 @@ const prisma = require('../../config/prisma')
 function generateCode(prefix, length) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   let code = `${prefix}-`
-  for (let i = 0; i < length; i++) code += chars[Math.floor(Math.random() * chars.length)]
+  for (let i = 0; i < length; i++) code += chars[randomInt(chars.length)]
   return code
 }
 
