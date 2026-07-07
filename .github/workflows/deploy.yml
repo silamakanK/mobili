@@ -10,10 +10,17 @@ jobs:
   deploy-backend:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy backend to Render
-        run: |
-          HOOK=${{ github.ref == 'refs/heads/main' && secrets.RENDER_DEPLOY_HOOK_BACKEND_PROD || secrets.RENDER_DEPLOY_HOOK_BACKEND_STAGING }}
-          curl -s "$HOOK"
+      - name: Deploy backend to Render (prod)
+        if: github.ref == 'refs/heads/main'
+        run: curl -s "$HOOK"
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_BACKEND_PROD }}
+
+      - name: Deploy backend to Render (staging)
+        if: github.ref != 'refs/heads/main'
+        run: curl -s "$HOOK"
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_BACKEND_STAGING }}
 
   deploy-frontend:
     runs-on: ubuntu-latest
