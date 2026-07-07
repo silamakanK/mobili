@@ -2,26 +2,44 @@ const request = require('supertest')
 const app = require('../../app')
 const prisma = require('../../config/prisma')
 const jwt = require('jsonwebtoken')
+const bcrypt = require('bcryptjs')
 
-function makeToken(role, companyId = null) {
-  return jwt.sign({ id: 'test-user-id', role, companyId }, process.env.JWT_SECRET || 'test')
+let companyId, routeId, adminCompanyId
+
+function makeToken(role, cId = null) {
+  return jwt.sign({ id: adminCompanyId, role, companyId: cId }, process.env.JWT_SECRET || 'test')
 }
 
-let companyId, routeId
-
 beforeAll(async () => {
+  const ts = Date.now()
   const co = await prisma.company.create({
     data: {
-      name: `RouteCo ${Date.now()}`,
-      contactEmail: `r${Date.now()}@test.ml`,
+      name: `RouteCo ${ts}`,
+      contactEmail: `r${ts}@test.ml`,
       contactPhone: '+22300000002',
     },
   })
   companyId = co.id
+
+  const hash = await bcrypt.hash('TestPass123', 10)
+  const ac = await prisma.user.create({
+    data: {
+      firstName: 'Test',
+      lastName: 'AdminRoute',
+      email: `ar.${ts}@test.ml`,
+      phone: `+2231${ts.toString().slice(-7)}`,
+      passwordHash: hash,
+      role: 'ADMIN_COMPANY',
+      companyId,
+      isActive: true,
+    },
+  })
+  adminCompanyId = ac.id
 })
 
 afterAll(async () => {
   await prisma.route.deleteMany({ where: { companyId } }).catch(() => {})
+  await prisma.user.delete({ where: { id: adminCompanyId } }).catch(() => {})
   await prisma.company.delete({ where: { id: companyId } }).catch(() => {})
 })
 

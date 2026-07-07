@@ -1,23 +1,96 @@
 const request = require('supertest')
 const jwt = require('jsonwebtoken')
+const bcrypt = require('bcryptjs')
 const app = require('../../app')
 const prisma = require('../../config/prisma')
 
-function makeToken(role, companyId = null) {
-  return jwt.sign({ id: 'test-user-id', role, companyId }, process.env.JWT_SECRET || 'test')
+let companyId, routeId, vehicleId, tripId
+let adminCompanyId, agentId, superAdminId, otherAdminId, otherCompanyId
+
+function makeToken(role, cId = null) {
+  let id
+  if (role === 'SUPER_ADMIN') id = superAdminId
+  else if (role === 'AGENT') id = agentId
+  else if (cId && cId !== companyId) id = otherAdminId
+  else id = adminCompanyId
+  return jwt.sign({ id, role, companyId: cId }, process.env.JWT_SECRET || 'test')
 }
 
-let companyId, routeId, vehicleId, tripId
-
 beforeAll(async () => {
+  const ts = Date.now()
+  const hash = await bcrypt.hash('TestPass123', 10)
+
   const company = await prisma.company.create({
     data: {
-      name: `Test Co ${Date.now()}`,
-      contactEmail: `co${Date.now()}@test.ml`,
+      name: `Test Co ${ts}`,
+      contactEmail: `co${ts}@test.ml`,
       contactPhone: '+22300000001',
     },
   })
   companyId = company.id
+
+  const otherCo = await prisma.company.create({
+    data: {
+      name: `Other Co ${ts}`,
+      contactEmail: `other${ts}@test.ml`,
+      contactPhone: '+22300000091',
+    },
+  })
+  otherCompanyId = otherCo.id
+
+  const [sa, ac, ag, oa] = await Promise.all([
+    prisma.user.create({
+      data: {
+        firstName: 'SA',
+        lastName: 'Trip',
+        email: `sa.t.${ts}@test.ml`,
+        phone: `+2234${ts.toString().slice(-7)}`,
+        passwordHash: hash,
+        role: 'SUPER_ADMIN',
+        isActive: true,
+      },
+    }),
+    prisma.user.create({
+      data: {
+        firstName: 'AC',
+        lastName: 'Trip',
+        email: `ac.t.${ts}@test.ml`,
+        phone: `+2235${ts.toString().slice(-7)}`,
+        passwordHash: hash,
+        role: 'ADMIN_COMPANY',
+        companyId,
+        isActive: true,
+      },
+    }),
+    prisma.user.create({
+      data: {
+        firstName: 'AG',
+        lastName: 'Trip',
+        email: `ag.t.${ts}@test.ml`,
+        phone: `+2236${ts.toString().slice(-7)}`,
+        passwordHash: hash,
+        role: 'AGENT',
+        companyId,
+        isActive: true,
+      },
+    }),
+    prisma.user.create({
+      data: {
+        firstName: 'OA',
+        lastName: 'Trip',
+        email: `oa.t.${ts}@test.ml`,
+        phone: `+2237${ts.toString().slice(-7)}`,
+        passwordHash: hash,
+        role: 'ADMIN_COMPANY',
+        companyId: otherCompanyId,
+        isActive: true,
+      },
+    }),
+  ])
+  superAdminId = sa.id
+  adminCompanyId = ac.id
+  agentId = ag.id
+  otherAdminId = oa.id
 
   const route = await prisma.route.create({
     data: {
@@ -53,7 +126,12 @@ afterAll(async () => {
   await prisma.trip.deleteMany({ where: { routeId } })
   await prisma.vehicle.deleteMany({ where: { companyId } })
   await prisma.route.deleteMany({ where: { companyId } })
-  await prisma.company.delete({ where: { id: companyId } })
+  await prisma.user.deleteMany({
+    where: { id: { in: [superAdminId, adminCompanyId, agentId, otherAdminId].filter(Boolean) } },
+  })
+  await prisma.company.deleteMany({
+    where: { id: { in: [companyId, otherCompanyId].filter(Boolean) } },
+  })
 })
 
 describe('GET /api/trips', () => {
@@ -77,9 +155,10 @@ describe('GET /api/trips', () => {
     expect(res.body.data).toEqual([])
   })
 
-  it('retourne 400 si la date est manquante', async () => {
+  it('retourne 200 sans date (date optionnelle)', async () => {
     const res = await request(app).get('/api/trips').query({ from: 'Bamako', to: 'Ségou' })
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body.data)).toBe(true)
   })
 })
 
