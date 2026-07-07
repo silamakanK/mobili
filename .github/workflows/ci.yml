@@ -73,7 +73,7 @@ jobs:
           SONAR_HOST_URL: https://sonarcloud.io
         with:
           args: >
-            -Dsonar.projectKey=silamakank_mobili
+            -Dsonar.projectKey=silamakanK_mobili
             -Dsonar.organization=silamakank
             -Dsonar.sources=mobili/backend/src
             -Dsonar.javascript.lcov.reportPaths=mobili/backend/coverage/lcov.info
