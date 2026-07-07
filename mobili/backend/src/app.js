@@ -1,4 +1,5 @@
 require('dotenv').config({ path: require('node:path').join(__dirname, '../.env') })
+const Sentry = require('./config/sentry')
 const express = require('express')
 const helmet = require('helmet')
 const cors = require('cors')
@@ -57,6 +58,8 @@ app.use('/api/stats', require('./modules/stats/stats.router'))
 app.use('/api/recurring-trips', require('./modules/recurring-trips/recurring-trips.router'))
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
+
+Sentry.setupExpressErrorHandler(app)
 
 app.use((err, _req, res, _next) => {
   const status = err.status || 500
