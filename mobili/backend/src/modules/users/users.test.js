@@ -2,26 +2,61 @@ const request = require('supertest')
 const app = require('../../app')
 const prisma = require('../../config/prisma')
 const jwt = require('jsonwebtoken')
+const bcrypt = require('bcryptjs')
 
-function makeToken(role, companyId = null) {
-  return jwt.sign({ id: 'test-user-id', role, companyId }, process.env.JWT_SECRET || 'test')
+let companyId, agentId, superAdminId, adminCompanyId
+
+function makeToken(role, cId = null) {
+  const id = role === 'SUPER_ADMIN' ? superAdminId : adminCompanyId
+  return jwt.sign({ id, role, companyId: cId }, process.env.JWT_SECRET || 'test')
 }
 
-let companyId, agentId
-
 beforeAll(async () => {
+  const ts = Date.now()
   const co = await prisma.company.create({
     data: {
-      name: `UserCo ${Date.now()}`,
-      contactEmail: `u${Date.now()}@test.ml`,
+      name: `UserCo ${ts}`,
+      contactEmail: `u${ts}@test.ml`,
       contactPhone: '+22300000005',
     },
   })
   companyId = co.id
+
+  const hash = await bcrypt.hash('TestPass123', 10)
+
+  const sa = await prisma.user.create({
+    data: {
+      firstName: 'Test',
+      lastName: 'SuperAdmin',
+      email: `sa.${ts}@test.ml`,
+      phone: `+2237${ts.toString().slice(-7)}`,
+      passwordHash: hash,
+      role: 'SUPER_ADMIN',
+      isActive: true,
+    },
+  })
+  superAdminId = sa.id
+
+  const ac = await prisma.user.create({
+    data: {
+      firstName: 'Test',
+      lastName: 'AdminCo',
+      email: `ac.${ts}@test.ml`,
+      phone: `+2238${ts.toString().slice(-7)}`,
+      passwordHash: hash,
+      role: 'ADMIN_COMPANY',
+      companyId,
+      isActive: true,
+    },
+  })
+  adminCompanyId = ac.id
 })
 
 afterAll(async () => {
   if (agentId) await prisma.user.delete({ where: { id: agentId } }).catch(() => {})
+  await prisma.user
+    .deleteMany({ where: { id: { in: [superAdminId, adminCompanyId].filter(Boolean) } } })
+    .catch(() => {})
   await prisma.company.delete({ where: { id: companyId } }).catch(() => {})
 })
 
