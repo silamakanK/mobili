@@ -2,13 +2,18 @@ const prisma = require('../../config/prisma')
 const { isConfigured: stripeConfigured, getStripe } = require('../../config/stripe')
 const {
   isConfigured: cinetpayConfigured,
-  createPayment,
-  checkPayment,
+  createPayment: cinetpayCreatePayment,
+  checkPayment: cinetpayCheckPayment,
   CHECKOUT_BASE,
 } = require('../../config/cinetpay')
+const {
+  isConfigured: omConfigured,
+  createWebPayment,
+  checkPaymentStatus: omCheckStatus,
+} = require('../../config/orange-money')
 const logger = require('../../config/logger')
 
-async function initiatePayment({ reservationIds, userId }) {
+async function initiatePayment({ reservationIds, userId, method = 'CARD' }) {
   if (!reservationIds?.length) {
     const err = new Error('Au moins une réservation est requise.')
     err.status = 400
@@ -82,22 +87,36 @@ async function initiatePayment({ reservationIds, userId }) {
     }
   }
 
+  const paymentMethod = method === 'ORANGE_MONEY' ? 'ORANGE_MONEY' : 'CARD'
+
   // Create primary payment (amount = total for all seats in this session)
   const primaryPayment = await prisma.payment.create({
-    data: { reservationId: primary.id, amount: totalAmount, method: 'CARD', status: 'PENDING' },
+    data: {
+      reservationId: primary.id,
+      amount: totalAmount,
+      method: paymentMethod,
+      status: 'PENDING',
+    },
   })
 
   // Create secondary payments (individual amounts, confirmed later by webhook)
   for (const r of sorted.slice(1)) {
     if (!r.payment) {
       await prisma.payment.create({
-        data: { reservationId: r.id, amount: r.totalAmount, method: 'CARD', status: 'PENDING' },
+        data: {
+          reservationId: r.id,
+          amount: r.totalAmount,
+          method: paymentMethod,
+          status: 'PENDING',
+        },
       })
     }
   }
 
   let redirectUrl = null
-  if (stripeConfigured()) {
+  if (paymentMethod === 'ORANGE_MONEY' && omConfigured()) {
+    redirectUrl = await _createOrangeMoneyPayment(primary, primaryPayment)
+  } else if (stripeConfigured()) {
     redirectUrl = await _createStripeSessionMulti(sorted, primaryPayment, userId)
   } else if (cinetpayConfigured()) {
     redirectUrl = await _createCinetpayInvoice(primary, primaryPayment, userId)
@@ -154,6 +173,38 @@ async function _createStripeSessionMulti(reservations, primaryPayment, userId) {
   return session.url
 }
 
+async function _createOrangeMoneyPayment(reservation, payment) {
+  try {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
+    const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3000}`
+
+    const data = await createWebPayment({
+      order_id: payment.id,
+      amount: payment.amount,
+      reference: `Mobili — ${reservation.reservationCode}`,
+      return_url: `${frontendUrl}/payment/return`,
+      cancel_url: `${frontendUrl}/payment`,
+      notif_url: `${backendUrl}/api/payments/orange-webhook`,
+      lang: 'fr',
+    })
+
+    if (data?.payment_url) {
+      // pay_token sert de référence de transaction côté Orange
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { transactionId: data.pay_token || payment.id },
+      })
+      return data.payment_url
+    }
+
+    logger.warn('Orange Money createWebPayment — réponse inattendue', { data })
+    return null
+  } catch (err) {
+    logger.error('Orange Money createWebPayment — erreur', { error: err.message })
+    return null
+  }
+}
+
 async function _createCinetpayInvoice(reservation, payment, userId) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } })
@@ -161,7 +212,7 @@ async function _createCinetpayInvoice(reservation, payment, userId) {
     const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3000}`
 
     const cinetpayTxId = payment.id.replace(/-/g, '')
-    const data = await createPayment({
+    const data = await cinetpayCreatePayment({
       transaction_id: cinetpayTxId,
       amount: reservation.totalAmount,
       description: `Mobili — Réservation ${reservation.reservationCode}`,
@@ -197,7 +248,7 @@ async function handleWebhook(body) {
     let success = false
     if (cinetpayConfigured()) {
       try {
-        const check = await checkPayment(cinetpayTxId)
+        const check = await cinetpayCheckPayment(cinetpayTxId)
         success = check?.data?.status === 'ACCEPTED'
       } catch (err) {
         logger.error('CinetPay checkPayment — erreur', { error: err.message })
@@ -211,6 +262,52 @@ async function handleWebhook(body) {
     reservationCode: body.reservationCode,
     transactionId: body.transactionId,
     success: body.status === 'success',
+  })
+}
+
+/**
+ * IPN Orange Money WebPay.
+ * Corps attendu : { order_id, status, txnstatus, notif_token, ... }
+ * Orange considère txnstatus === '200' comme succès.
+ */
+async function handleOrangeMoneyWebhook(body) {
+  const orderId = body?.order_id
+  if (!orderId) {
+    logger.warn('Orange Money IPN — order_id manquant', { body })
+    return { message: 'order_id manquant.' }
+  }
+
+  const payment = await prisma.payment.findUnique({
+    where: { id: orderId },
+    include: { reservation: { select: { reservationCode: true } } },
+  })
+
+  if (!payment) {
+    logger.warn('Orange Money IPN — paiement introuvable', { orderId })
+    return { message: 'Paiement introuvable.' }
+  }
+
+  if (payment.status === 'CONFIRMED') {
+    return { message: 'Paiement déjà confirmé.' }
+  }
+
+  // Vérification en double-call auprès d'Orange (plus fiable que le seul notif_token)
+  let success = body?.txnstatus === '200' || body?.status === 'SUCCESS'
+  if (omConfigured()) {
+    try {
+      const check = await omCheckStatus(orderId)
+      success = check?.status === 'SUCCESS' || check?.txnstatus === '200'
+    } catch (err) {
+      logger.error('Orange Money IPN — checkPaymentStatus échoué', { error: err.message })
+      // On garde la valeur du body comme fallback
+    }
+  }
+
+  logger.info('Orange Money IPN reçu', { orderId, success, txnstatus: body?.txnstatus })
+  return _processResult({
+    reservationCode: payment.reservation.reservationCode,
+    transactionId: body?.txnid || orderId,
+    success,
   })
 }
 
@@ -411,10 +508,28 @@ async function reverifyPayment(paymentId, userId) {
     }
   }
 
-  // Vérification CinetPay
+  // Vérification Orange Money
+  if (payment.method === 'ORANGE_MONEY' && omConfigured()) {
+    try {
+      const check = await omCheckStatus(paymentId)
+      if (check?.status === 'SUCCESS' || check?.txnstatus === '200') {
+        await _processResult({
+          reservationCode: payment.reservation.reservationCode,
+          transactionId: payment.transactionId || paymentId,
+          success: true,
+        })
+        logger.info('Paiement re-vérifié : confirmé via Orange Money', { paymentId })
+        return { updated: true, status: 'CONFIRMED' }
+      }
+    } catch (err) {
+      logger.error('reverifyPayment — Orange Money error', { error: err.message, paymentId })
+    }
+  }
+
+  // Vérification CinetPay (fallback)
   if (payment.transactionId && cinetpayConfigured()) {
     try {
-      const check = await checkPayment(payment.transactionId)
+      const check = await cinetpayCheckPayment(payment.transactionId)
       if (check?.data?.status === 'ACCEPTED') {
         await _processResult({
           reservationCode: payment.reservation.reservationCode,
@@ -447,6 +562,7 @@ async function expireOldPendingPayments({ olderThanMinutes = 60 } = {}) {
 module.exports = {
   initiatePayment,
   handleWebhook,
+  handleOrangeMoneyWebhook,
   handleStripeWebhook,
   getPaymentStatus,
   reverifyPayment,

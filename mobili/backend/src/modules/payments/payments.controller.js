@@ -3,6 +3,7 @@ const service = require('./payments.service')
 
 const initiateSchema = z.object({
   reservationIds: z.array(z.string().uuid()).min(1, 'Au moins une réservation est requise.'),
+  method: z.enum(['CARD', 'ORANGE_MONEY']).optional().default('CARD'),
 })
 
 async function initiatePaymentHandler(req, res, next) {
@@ -21,6 +22,16 @@ async function initiatePaymentHandler(req, res, next) {
 async function webhookHandler(req, res, next) {
   try {
     const result = await service.handleWebhook(req.body)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// Webhook Orange Money IPN
+async function orangeMoneyWebhookHandler(req, res, next) {
+  try {
+    const result = await service.handleOrangeMoneyWebhook(req.body)
     res.json({ success: true, data: result })
   } catch (err) {
     next(err)
@@ -69,6 +80,7 @@ async function expireOldPaymentsHandler(req, res, next) {
 module.exports = {
   initiatePaymentHandler,
   webhookHandler,
+  orangeMoneyWebhookHandler,
   stripeWebhookHandler,
   getPaymentStatusHandler,
   reverifyPaymentHandler,

@@ -29,7 +29,8 @@ Parcours principal : recherche de trajet → comparaison des compagnies → rés
 | ORM | **Prisma** (pas Sequelize) |
 | Base de données | PostgreSQL |
 | Authentification | JWT + RBAC |
-| Paiement | CinetPay (agrège Orange Money, Moov Money, Wave, carte — couverture Afrique de l'Ouest) |
+| Paiement mobile | Orange Money WebPay (API directe — Mali, couverture Orange Money) |
+| Paiement carte | Stripe (carte internationale) |
 | PDF | PDFKit ou équivalent |
 | QR Code | bibliothèque Node.js (ex. qrcode) |
 | Notifications | SMS (Infobip ou Twilio) + Email (SMTP / Mailgun) |

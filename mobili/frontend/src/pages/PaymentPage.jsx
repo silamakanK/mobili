@@ -25,6 +25,7 @@ export default function PaymentPage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
+  const [paymentMethod, setPaymentMethod] = useState('ORANGE_MONEY')
 
   useEffect(() => {
     if (reservationIdParam) {
@@ -74,7 +75,7 @@ export default function PaymentPage() {
         reservationIds = created
       }
 
-      const payRes = await initiatePayment({ reservationIds })
+      const payRes = await initiatePayment({ reservationIds, method: paymentMethod })
       const payment = payRes.data?.data || payRes.data
 
       if (payment?.redirectUrl) {
@@ -177,10 +178,45 @@ export default function PaymentPage() {
           </div>
         </div>
 
-        {/* Badge sécurité Stripe */}
+        {/* Sélecteur de méthode de paiement */}
+        <div className="mb-6">
+          <p className="text-label-md text-on-surface-variant mb-3">Mode de paiement</p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setPaymentMethod('ORANGE_MONEY')}
+              className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors ${
+                paymentMethod === 'ORANGE_MONEY'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-outline-variant bg-surface-container-lowest hover:border-outline'
+              }`}
+            >
+              <span className="material-symbols-outlined text-2xl" style={{ color: paymentMethod === 'ORANGE_MONEY' ? 'var(--md-sys-color-primary)' : undefined }}>smartphone</span>
+              <span className="text-label-md text-on-surface font-medium">Orange Money</span>
+              <span className="text-label-sm text-on-surface-variant">Mali · XOF</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPaymentMethod('CARD')}
+              className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors ${
+                paymentMethod === 'CARD'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-outline-variant bg-surface-container-lowest hover:border-outline'
+              }`}
+            >
+              <span className="material-symbols-outlined text-2xl" style={{ color: paymentMethod === 'CARD' ? 'var(--md-sys-color-primary)' : undefined }}>credit_card</span>
+              <span className="text-label-md text-on-surface font-medium">Carte bancaire</span>
+              <span className="text-label-sm text-on-surface-variant">Visa · Mastercard</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Badge sécurité */}
         <div className="flex items-center justify-center gap-2 bg-surface-container-low rounded-full px-5 py-2 mb-6 w-fit mx-auto">
           <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '18px' }}>lock</span>
-          <span className="text-body-sm text-on-surface-variant">Paiement sécurisé via Stripe</span>
+          <span className="text-body-sm text-on-surface-variant">
+            {paymentMethod === 'ORANGE_MONEY' ? 'Paiement sécurisé via Orange Money' : 'Paiement sécurisé via Stripe'}
+          </span>
         </div>
 
         {error && (
@@ -198,11 +234,15 @@ export default function PaymentPage() {
           {submitting ? (
             <>
               <span className="animate-spin w-5 h-5 border-2 border-on-primary border-t-transparent rounded-full" />
-              <span>Redirection vers Stripe…</span>
+              <span>
+                {paymentMethod === 'ORANGE_MONEY' ? 'Redirection vers Orange Money…' : 'Redirection vers Stripe…'}
+              </span>
             </>
           ) : (
             <>
-              <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>payment</span>
+              <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>
+                {paymentMethod === 'ORANGE_MONEY' ? 'smartphone' : 'credit_card'}
+              </span>
               Payer {totalAmount.toLocaleString('fr-FR')} FCFA
             </>
           )}

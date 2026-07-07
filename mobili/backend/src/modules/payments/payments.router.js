@@ -4,6 +4,7 @@ const { authorize } = require('../../middleware/rbac.middleware')
 const {
   initiatePaymentHandler,
   webhookHandler,
+  orangeMoneyWebhookHandler,
   stripeWebhookHandler,
   getPaymentStatusHandler,
   reverifyPaymentHandler,
@@ -14,6 +15,7 @@ const router = Router()
 
 router.post('/initiate', authenticate, initiatePaymentHandler)
 router.post('/webhook', webhookHandler)
+router.post('/orange-webhook', orangeMoneyWebhookHandler)
 router.post('/stripe-webhook', stripeWebhookHandler)
 router.get('/:id/status', authenticate, getPaymentStatusHandler)
 // Re-vérification manuelle : utile quand le webhook n'est pas arrivé
