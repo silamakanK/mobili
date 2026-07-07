@@ -38,6 +38,12 @@ jobs:
         working-directory: mobili/backend
         run: npm ci
 
+      - name: Generate Prisma client
+        working-directory: mobili/backend
+        env:
+          DATABASE_URL: postgresql://mobili:mobili_test@localhost:5432/mobili_test
+        run: npx prisma generate
+
       - name: Run Prisma migrate
         working-directory: mobili/backend
         env:
