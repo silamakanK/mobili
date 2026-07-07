@@ -67,11 +67,12 @@ jobs:
         run: npm test
 
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v4
+        uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
             -Dsonar.projectKey=mobili
+            -Dsonar.organization=${{ secrets.SONAR_ORG }}
             -Dsonar.sources=mobili/backend/src
             -Dsonar.javascript.lcov.reportPaths=mobili/backend/coverage/lcov.info
