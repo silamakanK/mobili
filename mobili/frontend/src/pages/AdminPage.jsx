@@ -8,7 +8,7 @@ import { listCompanyTrips, createTrip, updateTrip, cancelTrip, getTripPassengers
 import { listUsers, createAgent, updateUser } from '../services/users'
 import { listCompanyReservations } from '../services/reservations'
 import { listSeats, updateSeat } from '../services/seats'
-import { listRecurringTrips, createRecurringTrip, generateTrips, deleteRecurringTrip } from '../services/recurring-trips'
+import { listRecurringTrips, createRecurringTrip, generateTrips, deleteRecurringTrip, replaceVehicle } from '../services/recurring-trips'
 
 const ADMIN_ROLES = ['ADMIN_COMPANY', 'SUPER_ADMIN']
 
@@ -745,6 +745,10 @@ function TrajetsSection() {
   const [editForm, setEditForm] = useState({ price: '', departureTime: '' })
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState('')
+  const [replacingTrip, setReplacingTrip] = useState(null)
+  const [replaceVehicleId, setReplaceVehicleId] = useState('')
+  const [replaceSaving, setReplaceSaving] = useState(false)
+  const [replaceError, setReplaceError] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -806,6 +810,28 @@ function TrajetsSection() {
     setEditError('')
   }
 
+  const handleReplaceOpen = (t) => {
+    setReplacingTrip(t)
+    setReplaceVehicleId('')
+    setReplaceError('')
+  }
+
+  const handleReplaceSubmit = async (e) => {
+    e.preventDefault()
+    if (!replaceVehicleId) return
+    setReplaceError('')
+    setReplaceSaving(true)
+    try {
+      await replaceVehicle(replacingTrip.id, replaceVehicleId)
+      setReplacingTrip(null)
+      load()
+    } catch (err) {
+      setReplaceError(err.response?.data?.error || 'Erreur lors du remplacement.')
+    } finally {
+      setReplaceSaving(false)
+    }
+  }
+
   const handleEditSubmit = async (e) => {
     e.preventDefault()
     setEditError('')
@@ -837,6 +863,94 @@ function TrajetsSection() {
       {selectedTrip && (
         <PassengersModal trip={selectedTrip} onClose={() => setSelectedTrip(null)} />
       )}
+
+      {replacingTrip && (() => {
+        const confirmed = replacingTrip.reservations?.length || 0
+        const selectedVehicle = vehicles.find((v) => v.id === replaceVehicleId)
+        const seatDiff = selectedVehicle ? selectedVehicle.totalSeats - (replacingTrip.vehicle?.totalSeats ?? 0) : 0
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-xl w-full max-w-md">
+              <div className="px-5 py-4 border-b border-outline-variant flex items-center justify-between">
+                <div>
+                  <h2 className="text-headline-sm text-on-surface">Remplacer le véhicule</h2>
+                  <p className="text-body-sm text-on-surface-variant mt-0.5">
+                    {replacingTrip.route?.origin} → {replacingTrip.route?.destination} · {new Date(replacingTrip.departureDate).toLocaleDateString('fr-FR')}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setReplacingTrip(null)}
+                  className="p-1 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>close</span>
+                </button>
+              </div>
+              <form onSubmit={handleReplaceSubmit} className="p-5 space-y-4">
+                <div className="flex items-start gap-3 p-3 rounded-xl bg-tertiary/10 border border-tertiary/20">
+                  <span className="material-symbols-outlined text-tertiary mt-0.5" style={{ fontSize: '20px' }}>warning</span>
+                  <div className="text-body-sm text-on-surface-variant">
+                    <p className="font-medium text-on-surface">Véhicule actuel : {replacingTrip.vehicle?.registrationNumber ?? '—'}</p>
+                    <p>{replacingTrip.vehicle?.type} · {replacingTrip.vehicle?.totalSeats ?? '?'} places · <span className="font-medium">{confirmed} réservation(s) en cours</span></p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-label-lg text-on-surface-variant block mb-1">Véhicule de remplacement</label>
+                  <select
+                    required
+                    value={replaceVehicleId}
+                    onChange={(e) => setReplaceVehicleId(e.target.value)}
+                    className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="">— Choisir un véhicule —</option>
+                    {vehicles
+                      .filter((v) => v.id !== replacingTrip.vehicleId && v.isActive !== false)
+                      .map((v) => (
+                        <option key={v.id} value={v.id} disabled={v.totalSeats < confirmed}>
+                          {v.registrationNumber} · {v.type} · {v.totalSeats} places{v.totalSeats < confirmed ? ' (insuffisant)' : ''}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                {selectedVehicle && (
+                  <div className={`flex items-start gap-3 p-3 rounded-xl border ${seatDiff >= 0 ? 'bg-primary/5 border-primary/20' : 'bg-error-container/30 border-error/20'}`}>
+                    <span className={`material-symbols-outlined mt-0.5 ${seatDiff >= 0 ? 'text-primary' : 'text-error'}`} style={{ fontSize: '20px' }}>
+                      {seatDiff >= 0 ? 'check_circle' : 'error'}
+                    </span>
+                    <div className="text-body-sm text-on-surface-variant">
+                      <p>{selectedVehicle.totalSeats} places disponibles — {confirmed} réservée(s) = <span className="font-medium text-on-surface">{selectedVehicle.totalSeats - confirmed} places libres</span></p>
+                      {seatDiff !== 0 && (
+                        <p className="mt-0.5">
+                          {seatDiff > 0 ? `+${seatDiff} places supplémentaires` : `${seatDiff} places en moins`} par rapport au véhicule actuel
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {replaceError && <ErrorMsg msg={replaceError} />}
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={replaceSaving || !replaceVehicleId}
+                    className="bg-tertiary text-on-tertiary px-5 py-2 rounded-xl text-label-lg hover:opacity-90 disabled:opacity-50 transition"
+                  >
+                    {replaceSaving ? 'Remplacement…' : 'Confirmer le remplacement'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReplacingTrip(null)}
+                    className="text-on-surface-variant text-label-lg hover:underline"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )
+      })()}
 
       {editingTrip && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -1048,6 +1162,15 @@ function TrajetsSection() {
                           >
                             <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>group</span>
                           </button>
+                          {t.status === 'SCHEDULED' && (
+                            <button
+                              onClick={() => handleReplaceOpen(t)}
+                              className="text-tertiary hover:bg-tertiary/10 p-1 rounded-lg transition"
+                              title="Remplacer le véhicule (panne)"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>directions_bus</span>
+                            </button>
+                          )}
                           {t.status === 'SCHEDULED' && (
                             <button
                               onClick={() => handleEditOpen(t)}
