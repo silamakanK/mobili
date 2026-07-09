@@ -114,6 +114,9 @@ async function createWebPayment(payload) {
  * @param {string} orderId — notre payment.id (utilisé comme order_id)
  */
 async function checkPaymentStatus(orderId) {
+  if (!/^[\w-]+$/.test(orderId)) {
+    throw new Error('orderId invalide.')
+  }
   const token = await getAccessToken()
 
   const res = await fetch(

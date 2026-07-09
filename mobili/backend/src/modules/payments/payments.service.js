@@ -13,83 +13,39 @@ const {
 } = require('../../config/orange-money')
 const logger = require('../../config/logger')
 
-async function initiatePayment({ reservationIds, userId, method = 'CARD' }) {
-  if (!reservationIds?.length) {
-    const err = new Error('Au moins une réservation est requise.')
-    err.status = 400
-    throw err
-  }
+function _throwError(message, status) {
+  const err = new Error(message)
+  err.status = status
+  throw err
+}
 
-  const reservations = await prisma.reservation.findMany({
-    where: { id: { in: reservationIds } },
-    include: {
-      payment: true,
-      trip: { include: { route: true } },
-    },
-  })
-
-  if (reservations.length !== reservationIds.length) {
-    const err = new Error('Une ou plusieurs réservations sont introuvables.')
-    err.status = 404
-    throw err
-  }
-
-  // Preserve caller order
-  const sorted = reservationIds.map((id) => reservations.find((r) => r.id === id))
-
+function _validateReservations(sorted, userId) {
   for (const r of sorted) {
-    if (r.userId !== userId) {
-      const err = new Error('Accès non autorisé.')
-      err.status = 403
-      throw err
-    }
-    if (r.payment?.status === 'CONFIRMED') {
-      const err = new Error(`La réservation ${r.reservationCode} est déjà payée.`)
-      err.status = 400
-      throw err
-    }
-    if (r.status !== 'PENDING') {
-      const err = new Error(`La réservation ${r.reservationCode} ne peut plus être payée.`)
-      err.status = 400
-      throw err
+    if (r.userId !== userId) _throwError('Accès non autorisé.', 403)
+    if (r.payment?.status === 'CONFIRMED')
+      _throwError(`La réservation ${r.reservationCode} est déjà payée.`, 400)
+    if (r.status !== 'PENDING')
+      _throwError(`La réservation ${r.reservationCode} ne peut plus être payée.`, 400)
+  }
+}
+
+async function _resolveIdempotentRedirect(sorted, primary, userId) {
+  if (!stripeConfigured()) return null
+  if (primary.payment.transactionId?.startsWith('cs_')) {
+    try {
+      const stripe = getStripe()
+      const session = await stripe.checkout.sessions.retrieve(primary.payment.transactionId)
+      return session.status === 'open'
+        ? session.url
+        : await _createStripeSessionMulti(sorted, primary.payment, userId)
+    } catch {
+      return _createStripeSessionMulti(sorted, primary.payment, userId)
     }
   }
+  return _createStripeSessionMulti(sorted, primary.payment, userId)
+}
 
-  const primary = sorted[0]
-  const totalAmount = sorted.reduce((sum, r) => sum + r.totalAmount, 0)
-
-  // Idempotency: primary payment already exists in PENDING
-  if (primary.payment?.status === 'PENDING') {
-    let redirectUrl = null
-    if (stripeConfigured()) {
-      if (primary.payment.transactionId?.startsWith('cs_')) {
-        try {
-          const stripe = getStripe()
-          const session = await stripe.checkout.sessions.retrieve(primary.payment.transactionId)
-          redirectUrl =
-            session.status === 'open'
-              ? session.url
-              : await _createStripeSessionMulti(sorted, primary.payment, userId)
-        } catch {
-          redirectUrl = await _createStripeSessionMulti(sorted, primary.payment, userId)
-        }
-      } else {
-        // Paiement PENDING sans session Stripe (erreur précédente) — en créer une
-        redirectUrl = await _createStripeSessionMulti(sorted, primary.payment, userId)
-      }
-    }
-    return {
-      paymentId: primary.payment.id,
-      amount: primary.payment.amount,
-      status: 'PENDING',
-      reservationCodes: sorted.map((r) => r.reservationCode),
-      redirectUrl,
-    }
-  }
-
-  const paymentMethod = method === 'ORANGE_MONEY' ? 'ORANGE_MONEY' : 'CARD'
-
-  // Create primary payment (amount = total for all seats in this session)
+async function _createPaymentRecords(sorted, primary, totalAmount, paymentMethod) {
   const primaryPayment = await prisma.payment.create({
     data: {
       reservationId: primary.id,
@@ -98,8 +54,6 @@ async function initiatePayment({ reservationIds, userId, method = 'CARD' }) {
       status: 'PENDING',
     },
   })
-
-  // Create secondary payments (individual amounts, confirmed later by webhook)
   for (const r of sorted.slice(1)) {
     if (!r.payment) {
       await prisma.payment.create({
@@ -112,6 +66,39 @@ async function initiatePayment({ reservationIds, userId, method = 'CARD' }) {
       })
     }
   }
+  return primaryPayment
+}
+
+async function initiatePayment({ reservationIds, userId, method = 'CARD' }) {
+  if (!reservationIds?.length) _throwError('Au moins une réservation est requise.', 400)
+
+  const reservations = await prisma.reservation.findMany({
+    where: { id: { in: reservationIds } },
+    include: { payment: true, trip: { include: { route: true } } },
+  })
+
+  if (reservations.length !== reservationIds.length)
+    _throwError('Une ou plusieurs réservations sont introuvables.', 404)
+
+  const sorted = reservationIds.map((id) => reservations.find((r) => r.id === id))
+  _validateReservations(sorted, userId)
+
+  const primary = sorted[0]
+  const totalAmount = sorted.reduce((sum, r) => sum + r.totalAmount, 0)
+
+  if (primary.payment?.status === 'PENDING') {
+    const redirectUrl = await _resolveIdempotentRedirect(sorted, primary, userId)
+    return {
+      paymentId: primary.payment.id,
+      amount: primary.payment.amount,
+      status: 'PENDING',
+      reservationCodes: sorted.map((r) => r.reservationCode),
+      redirectUrl,
+    }
+  }
+
+  const paymentMethod = method === 'ORANGE_MONEY' ? 'ORANGE_MONEY' : 'CARD'
+  const primaryPayment = await _createPaymentRecords(sorted, primary, totalAmount, paymentMethod)
 
   let redirectUrl = null
   if (paymentMethod === 'ORANGE_MONEY' && omConfigured()) {
@@ -211,7 +198,7 @@ async function _createCinetpayInvoice(reservation, payment, userId) {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
     const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3000}`
 
-    const cinetpayTxId = payment.id.replace(/-/g, '')
+    const cinetpayTxId = payment.id.replaceAll('-', '')
     const data = await cinetpayCreatePayment({
       transaction_id: cinetpayTxId,
       amount: reservation.totalAmount,
@@ -455,93 +442,86 @@ async function generateTicket(reservationId) {
 
 // Vérifie manuellement le statut d'un paiement auprès de Stripe / CinetPay.
 // Utile quand le webhook n'a pas été reçu ou que le statut local est PENDING/FAILED.
+async function _reverifyStripe(payment, paymentId) {
+  if (!payment.transactionId?.startsWith('cs_') || !stripeConfigured()) return null
+  try {
+    const stripe = getStripe()
+    const session = await stripe.checkout.sessions.retrieve(payment.transactionId)
+    if (session.payment_status === 'paid') {
+      await _processResult({
+        reservationCode: payment.reservation.reservationCode,
+        transactionId: session.id,
+        success: true,
+      })
+      logger.info('Paiement re-vérifié : confirmé via Stripe', { paymentId })
+      return { updated: true, status: 'CONFIRMED' }
+    }
+    if (session.status === 'expired') {
+      await prisma.payment.update({ where: { id: paymentId }, data: { status: 'EXPIRED' } })
+      return { updated: true, status: 'EXPIRED' }
+    }
+    if (session.status === 'complete' && session.payment_status === 'unpaid') {
+      await prisma.payment.update({ where: { id: paymentId }, data: { status: 'CANCELLED' } })
+      return { updated: true, status: 'CANCELLED' }
+    }
+  } catch (err) {
+    logger.error('reverifyPayment — Stripe error', { error: err.message, paymentId })
+  }
+  return null
+}
+
+async function _reverifyOrangeMoney(payment, paymentId) {
+  if (payment.method !== 'ORANGE_MONEY' || !omConfigured()) return null
+  try {
+    const check = await omCheckStatus(paymentId)
+    if (check?.status === 'SUCCESS' || check?.txnstatus === '200') {
+      await _processResult({
+        reservationCode: payment.reservation.reservationCode,
+        transactionId: payment.transactionId || paymentId,
+        success: true,
+      })
+      logger.info('Paiement re-vérifié : confirmé via Orange Money', { paymentId })
+      return { updated: true, status: 'CONFIRMED' }
+    }
+  } catch (err) {
+    logger.error('reverifyPayment — Orange Money error', { error: err.message, paymentId })
+  }
+  return null
+}
+
+async function _reverifyCinetpay(payment, paymentId) {
+  if (!payment.transactionId || !cinetpayConfigured()) return null
+  try {
+    const check = await cinetpayCheckPayment(payment.transactionId)
+    if (check?.data?.status === 'ACCEPTED') {
+      await _processResult({
+        reservationCode: payment.reservation.reservationCode,
+        transactionId: payment.transactionId,
+        success: true,
+      })
+      return { updated: true, status: 'CONFIRMED' }
+    }
+  } catch (err) {
+    logger.error('reverifyPayment — CinetPay error', { error: err.message, paymentId })
+  }
+  return null
+}
+
 async function reverifyPayment(paymentId, userId) {
   const payment = await prisma.payment.findUnique({
     where: { id: paymentId },
-    include: {
-      reservation: { select: { userId: true, reservationCode: true } },
-    },
+    include: { reservation: { select: { userId: true, reservationCode: true } } },
   })
-  if (!payment) {
-    const e = new Error('Paiement introuvable.')
-    e.status = 404
-    throw e
-  }
-  if (payment.reservation.userId !== userId) {
-    const e = new Error('Accès non autorisé.')
-    e.status = 403
-    throw e
-  }
-  if (payment.status === 'CONFIRMED') {
-    return { alreadyConfirmed: true, status: 'CONFIRMED' }
-  }
+  if (!payment) _throwError('Paiement introuvable.', 404)
+  if (payment.reservation.userId !== userId) _throwError('Accès non autorisé.', 403)
+  if (payment.status === 'CONFIRMED') return { alreadyConfirmed: true, status: 'CONFIRMED' }
 
-  // Vérification Stripe
-  if (payment.transactionId?.startsWith('cs_') && stripeConfigured()) {
-    try {
-      const stripe = getStripe()
-      const session = await stripe.checkout.sessions.retrieve(payment.transactionId)
+  const result =
+    (await _reverifyStripe(payment, paymentId)) ||
+    (await _reverifyOrangeMoney(payment, paymentId)) ||
+    (await _reverifyCinetpay(payment, paymentId))
 
-      if (session.payment_status === 'paid') {
-        await _processResult({
-          reservationCode: payment.reservation.reservationCode,
-          transactionId: session.id,
-          success: true,
-        })
-        logger.info('Paiement re-vérifié : confirmé via Stripe', { paymentId })
-        return { updated: true, status: 'CONFIRMED' }
-      }
-
-      // Session expirée
-      if (session.status === 'expired') {
-        await prisma.payment.update({ where: { id: paymentId }, data: { status: 'EXPIRED' } })
-        return { updated: true, status: 'EXPIRED' }
-      }
-
-      // Annulée par le voyageur
-      if (session.status === 'complete' && session.payment_status === 'unpaid') {
-        await prisma.payment.update({ where: { id: paymentId }, data: { status: 'CANCELLED' } })
-        return { updated: true, status: 'CANCELLED' }
-      }
-    } catch (err) {
-      logger.error('reverifyPayment — Stripe error', { error: err.message, paymentId })
-    }
-  }
-
-  // Vérification Orange Money
-  if (payment.method === 'ORANGE_MONEY' && omConfigured()) {
-    try {
-      const check = await omCheckStatus(paymentId)
-      if (check?.status === 'SUCCESS' || check?.txnstatus === '200') {
-        await _processResult({
-          reservationCode: payment.reservation.reservationCode,
-          transactionId: payment.transactionId || paymentId,
-          success: true,
-        })
-        logger.info('Paiement re-vérifié : confirmé via Orange Money', { paymentId })
-        return { updated: true, status: 'CONFIRMED' }
-      }
-    } catch (err) {
-      logger.error('reverifyPayment — Orange Money error', { error: err.message, paymentId })
-    }
-  }
-
-  // Vérification CinetPay (fallback)
-  if (payment.transactionId && cinetpayConfigured()) {
-    try {
-      const check = await cinetpayCheckPayment(payment.transactionId)
-      if (check?.data?.status === 'ACCEPTED') {
-        await _processResult({
-          reservationCode: payment.reservation.reservationCode,
-          transactionId: payment.transactionId,
-          success: true,
-        })
-        return { updated: true, status: 'CONFIRMED' }
-      }
-    } catch (err) {
-      logger.error('reverifyPayment — CinetPay error', { error: err.message, paymentId })
-    }
-  }
+  if (result) return result
 
   logger.info('reverifyPayment — statut inchangé', { paymentId, status: payment.status })
   return { updated: false, status: payment.status }

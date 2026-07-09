@@ -130,13 +130,12 @@ async function generateTrips(id, adminUser, { weeks = 4 } = {}) {
     : new Date(today.getTime() + weeks * 7 * 86400000)
 
   const targetDates = []
-  const cursor = new Date(today)
-  while (cursor <= limit) {
-    if (cursor.getDay() === rt.dayOfWeek) {
-      const dateStr = cursor.toISOString().slice(0, 10)
-      targetDates.push(dateStr)
+  const DAY_MS = 86400000
+  for (let ms = today.getTime(); ms <= limit.getTime(); ms += DAY_MS) {
+    const d = new Date(ms)
+    if (d.getDay() === rt.dayOfWeek) {
+      targetDates.push(d.toISOString().slice(0, 10))
     }
-    cursor.setDate(cursor.getDate() + 1)
   }
 
   // Vérifier quelles dates ont déjà un trajet issu de ce modèle
