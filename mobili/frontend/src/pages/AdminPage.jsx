@@ -1629,6 +1629,126 @@ function PassengersModal({ trip, onClose }) {
 }
 
 // ── Places ─────────────────────────────────────────────────────────────────────
+function BusSeatMap({ seats, updating, onToggle }) {
+  // Group seats into rows of 4 (2 left | aisle | 2 right)
+  const rows = []
+  for (let i = 0; i < seats.length; i += 4) {
+    rows.push(seats.slice(i, i + 4))
+  }
+
+  return (
+    <div className="flex justify-center overflow-x-auto py-2">
+      <div style={{
+        background: '#f0f0f2',
+        border: '2px solid #c8c8cc',
+        borderRadius: '40px 40px 20px 20px',
+        padding: '16px 20px 20px',
+        minWidth: '230px',
+        width: '260px',
+      }}>
+        {/* Front row: door + steering wheel */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '0 4px' }}>
+          <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '26px' }}>door_front</span>
+          <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '26px' }}>settings</span>
+        </div>
+        <div style={{ borderTop: '2px solid #c0c0c4', marginBottom: '12px' }} />
+
+        {/* Seat rows */}
+        {rows.map((row, rowIdx) => (
+          <div key={rowIdx} style={{ display: 'flex', gap: '5px', marginBottom: '5px', justifyContent: 'center' }}>
+            {/* Left pair */}
+            <div style={{ display: 'flex', gap: '4px' }}>
+              {[0, 1].map((col) => {
+                const seat = row[col]
+                return seat ? (
+                  <BusSeatBtn key={seat.id} seat={seat} updating={updating} onToggle={onToggle} />
+                ) : (
+                  <div key={col} style={{ width: '44px', height: '44px' }} />
+                )
+              })}
+            </div>
+            {/* Aisle */}
+            <div style={{ width: '16px' }} />
+            {/* Right pair */}
+            <div style={{ display: 'flex', gap: '4px' }}>
+              {[2, 3].map((col) => {
+                const seat = row[col]
+                return seat ? (
+                  <BusSeatBtn key={seat.id} seat={seat} updating={updating} onToggle={onToggle} />
+                ) : (
+                  <div key={col} style={{ width: '44px', height: '44px' }} />
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function BusSeatBtn({ seat, updating, onToggle }) {
+  const isReserved = seat.isReserved
+  const isTripBlocked = seat.isTripBlocked
+  const isBroken = !seat.isAvailable && !isReserved && !isTripBlocked
+  const canToggle = !isReserved && !isBroken
+  const isUpdating = updating === seat.id
+
+  let bg, color, border, cursor, title
+  if (isReserved) {
+    bg = '#e53935'; color = '#fff'; border = '#c62828'; cursor = 'default'
+    title = `Siège ${seat.seatNumber} — Réservé (application)`
+  } else if (isTripBlocked) {
+    bg = '#bdbdbd'; color = '#555'; border = '#9e9e9e'; cursor = 'pointer'
+    title = `Siège ${seat.seatNumber} — Occupé (réservation physique) — clic pour libérer`
+  } else if (isBroken) {
+    bg = '#fce4e4'; color = '#e57373'; border = '#ef9a9a'; cursor = 'default'
+    title = `Siège ${seat.seatNumber} — Hors service`
+  } else {
+    bg = '#c8f0e0'; color = '#00503a'; border = '#83d7b4'; cursor = 'pointer'
+    title = `Siège ${seat.seatNumber} — Libre — clic pour marquer comme occupé`
+  }
+
+  return (
+    <button
+      onClick={() => canToggle && onToggle(seat)}
+      disabled={isUpdating || !canToggle}
+      title={title}
+      style={{
+        position: 'relative',
+        width: '44px',
+        height: '44px',
+        borderRadius: '8px',
+        border: `2px solid ${border}`,
+        background: bg,
+        color,
+        cursor,
+        fontSize: '11px',
+        fontWeight: '600',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '1px',
+        opacity: isUpdating ? 0.4 : 1,
+        transition: 'opacity 0.15s',
+        overflow: 'hidden',
+      }}
+    >
+      {seat.seatNumber}
+      {/* Diagonal line for trip-blocked seats */}
+      {isTripBlocked && (
+        <svg
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+          viewBox="0 0 44 44"
+        >
+          <line x1="4" y1="4" x2="40" y2="40" stroke="#888" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      )}
+    </button>
+  )
+}
+
 function PlacesSection() {
   const [trips, setTrips] = useState([])
   const [selectedTripId, setSelectedTripId] = useState('')
@@ -1668,12 +1788,16 @@ function PlacesSection() {
     setError('')
     try {
       await initVehicleSeats(selectedTrip.vehicle.id)
-      loadSeats(selectedTripId)
     } catch (err) {
-      setError(err.response?.data?.error || 'Erreur lors de l\'initialisation.')
-    } finally {
-      setInitializingSeats(false)
+      // Si 409 (déjà initialisé), on recharge quand même les sièges
+      if (err.response?.status !== 409) {
+        setError(err.response?.data?.error || "Erreur lors de l'initialisation.")
+        setInitializingSeats(false)
+        return
+      }
     }
+    loadSeats(selectedTripId)
+    setInitializingSeats(false)
   }
 
   const handleToggle = async (seat) => {
@@ -1714,29 +1838,48 @@ function PlacesSection() {
         ) : (
           <select
             value={selectedTripId}
-            onChange={(e) => setSelectedTripId(e.target.value)}
+            onChange={(e) => { setError(''); setSelectedTripId(e.target.value) }}
             className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
           >
             {trips.length === 0 && <option value="">Aucun trajet planifié</option>}
             {trips.map((t) => (
               <option key={t.id} value={t.id}>
-                {new Date(t.departureDate).toLocaleDateString('fr-FR')} · {t.departureTime?.slice(0,5)} · {t.route?.origin} → {t.route?.destination}
+                {new Date(t.departureDate).toLocaleDateString('fr-FR')} · {t.departureTime?.slice(0, 5)} · {t.route?.origin} → {t.route?.destination}
               </option>
             ))}
           </select>
         )}
         {selectedTrip && !loadingSeats && seats.length > 0 && (
-          <div className="flex flex-wrap gap-4 mt-3 text-body-sm text-on-surface-variant">
+          <div className="flex flex-wrap gap-4 mt-3 text-body-sm">
             <span className="text-primary font-medium">{availableCount} libre{availableCount !== 1 ? 's' : ''}</span>
-            <span className="text-error font-medium">{reservedCount} réservé{reservedCount !== 1 ? 's' : ''}</span>
-            {blockedCount > 0 && <span className="text-on-surface-variant font-medium">{blockedCount} occupé{blockedCount !== 1 ? 's' : ''} (résa physique)</span>}
+            <span className="text-error font-medium">{reservedCount} réservé{reservedCount !== 1 ? 's' : ''} (app)</span>
+            {blockedCount > 0 && <span className="text-on-surface-variant font-medium">{blockedCount} occupé{blockedCount !== 1 ? 's' : ''} (physique)</span>}
           </div>
         )}
       </div>
 
       {selectedTripId && (
         <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5">
-          <h2 className="text-headline-sm text-on-surface mb-4">Disposition des sièges</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-headline-sm text-on-surface">Plan des sièges</h2>
+            {seats.length > 0 && (
+              <div className="flex flex-wrap gap-3 text-label-md text-on-surface-variant">
+                <span className="flex items-center gap-1.5">
+                  <span style={{ width: 14, height: 14, borderRadius: 3, background: '#c8f0e0', border: '1.5px solid #83d7b4', display: 'inline-block' }} />
+                  Libre
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span style={{ width: 14, height: 14, borderRadius: 3, background: '#e53935', border: '1.5px solid #c62828', display: 'inline-block' }} />
+                  Réservé (app)
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span style={{ width: 14, height: 14, borderRadius: 3, background: '#bdbdbd', border: '1.5px solid #9e9e9e', display: 'inline-block' }} />
+                  Occupé (physique)
+                </span>
+              </div>
+            )}
+          </div>
+
           {loadingSeats ? (
             <Spinner />
           ) : seats.length === 0 ? (
@@ -1757,58 +1900,10 @@ function PlacesSection() {
             </div>
           ) : (
             <>
-              <div className="flex flex-wrap gap-4 mb-5 text-body-sm text-on-surface-variant">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded bg-secondary-container inline-block" />
-                  Disponible
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded bg-error/80 inline-block" />
-                  Réservé
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded bg-surface-variant border border-outline-variant inline-block" />
-                  Occupé (résa physique)
-                </span>
-              </div>
-              <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-2">
-                {seats.map((seat) => {
-                  const isReserved = seat.isReserved
-                  const isTripBlocked = seat.isTripBlocked
-                  const isBroken = !seat.isAvailable && !isReserved && !isTripBlocked
-                  const canToggle = !isReserved && !isBroken
-                  return (
-                    <button
-                      key={seat.id}
-                      onClick={() => handleToggle(seat)}
-                      disabled={updating === seat.id || !canToggle}
-                      title={
-                        isReserved ? `Siège ${seat.seatNumber} — Réservé`
-                        : isTripBlocked ? `Siège ${seat.seatNumber} — Occupé (réservation physique) — clic pour libérer`
-                        : isBroken ? `Siège ${seat.seatNumber} — Hors service`
-                        : `Siège ${seat.seatNumber} — Disponible — clic pour marquer comme occupé`
-                      }
-                      className={`
-                        flex flex-col items-center justify-center rounded-lg py-2 px-1 border transition text-label-sm font-medium gap-0.5
-                        ${isReserved ? 'bg-error/80 text-on-primary border-error cursor-default'
-                          : isTripBlocked ? 'bg-surface-variant text-on-surface-variant border-outline-variant hover:opacity-75 cursor-pointer'
-                          : isBroken ? 'bg-error-container/20 text-error/50 border-error/20 cursor-default'
-                          : 'bg-secondary-container text-on-secondary-container border-secondary/30 hover:opacity-75 cursor-pointer'
-                        }
-                        ${updating === seat.id ? 'opacity-40' : ''}
-                      `}
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>
-                        {isReserved ? 'person' : isTripBlocked ? 'block' : 'airline_seat_recline_extra'}
-                      </span>
-                      <span>{seat.seatNumber}</span>
-                    </button>
-                  )
-                })}
-              </div>
-              {error && <ErrorMsg msg={error} />}
-              <p className="text-body-sm text-on-surface-variant mt-4">
-                Cliquez sur un siège disponible pour le bloquer pour ce trajet uniquement.
+              <BusSeatMap seats={seats} updating={updating} onToggle={handleToggle} />
+              {error && <div className="mt-4"><ErrorMsg msg={error} /></div>}
+              <p className="text-body-sm text-on-surface-variant mt-4 text-center">
+                Cliquez sur un siège <span style={{ color: '#00503a', fontWeight: 600 }}>libre</span> pour le marquer comme occupé (réservation physique), ou sur un siège <span style={{ color: '#757575', fontWeight: 600 }}>occupé</span> pour le libérer.
               </p>
             </>
           )}
