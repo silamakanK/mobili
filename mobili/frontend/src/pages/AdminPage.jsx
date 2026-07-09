@@ -7,7 +7,7 @@ import { listVehicles, createVehicle, updateVehicle, deleteVehicle } from '../se
 import { listCompanyTrips, createTrip, updateTrip, cancelTrip, getTripPassengers } from '../services/trips-admin'
 import { listUsers, createAgent, updateUser } from '../services/users'
 import { listCompanyReservations } from '../services/reservations'
-import { listSeats, updateSeat, getTripSeats, blockTripSeat, unblockTripSeat } from '../services/seats'
+import { listSeats, updateSeat, getTripSeats, blockTripSeat, unblockTripSeat, initVehicleSeats } from '../services/seats'
 import { listRecurringTrips, createRecurringTrip, generateTrips, deleteRecurringTrip, replaceVehicle } from '../services/recurring-trips'
 
 const ADMIN_ROLES = ['ADMIN_COMPANY', 'SUPER_ADMIN']
@@ -749,24 +749,66 @@ function TrajetsSection() {
   const [replaceVehicleId, setReplaceVehicleId] = useState('')
   const [replaceSaving, setReplaceSaving] = useState(false)
   const [replaceError, setReplaceError] = useState('')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const LIMIT = 20
+  const [filterStatus, setFilterStatus] = useState('')
+  const [filterOrigin, setFilterOrigin] = useState('')
+  const [filterDestination, setFilterDestination] = useState('')
+  const [filterFrom, setFilterFrom] = useState('')
+  const [filterTo, setFilterTo] = useState('')
+  const [activePeriod, setActivePeriod] = useState('all')
 
-  const load = useCallback(() => {
+  const load = useCallback((p = 1, opts = {}) => {
     setLoading(true)
+    const params = {
+      page: p,
+      limit: LIMIT,
+      status: opts.status ?? filterStatus || undefined,
+      origin: opts.origin ?? filterOrigin || undefined,
+      destination: opts.destination ?? filterDestination || undefined,
+      from: opts.from ?? filterFrom || undefined,
+      to: opts.to ?? filterTo || undefined,
+    }
     Promise.all([
-      listCompanyTrips({ limit: 50 }),
+      listCompanyTrips(params),
       listRoutes({ limit: 100 }),
       listVehicles({ limit: 100 }),
     ])
       .then(([tripsRes, routesRes, vehiclesRes]) => {
         setTrips(tripsRes.data?.data?.trips || [])
+        setTotal(tripsRes.data?.data?.total || 0)
         setRoutes(routesRes.data?.data?.routes || [])
         setVehicles(vehiclesRes.data?.data?.vehicles || [])
       })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [])
+  }, [filterStatus, filterOrigin, filterDestination, filterFrom, filterTo])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(1) }, [load])
+
+  const applyPeriod = (period) => {
+    setActivePeriod(period)
+    const now = new Date()
+    if (period === 'all') { setFilterFrom(''); setFilterTo(''); load(1, { from: '', to: '' }); return }
+    if (period === 'week') {
+      const start = new Date(now); start.setDate(now.getDate() - now.getDay() + 1)
+      const end = new Date(start); end.setDate(start.getDate() + 6)
+      const from = start.toISOString().slice(0, 10); const to = end.toISOString().slice(0, 10)
+      setFilterFrom(from); setFilterTo(to); load(1, { from, to }); return
+    }
+    if (period === 'month') {
+      const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+      const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10)
+      setFilterFrom(from); setFilterTo(to); load(1, { from, to }); return
+    }
+  }
+
+  const applyFilters = () => { setPage(1); load(1) }
+  const resetFilters = () => {
+    setFilterStatus(''); setFilterOrigin(''); setFilterDestination(''); setFilterFrom(''); setFilterTo(''); setActivePeriod('all')
+    load(1, { status: '', origin: '', destination: '', from: '', to: '' })
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -794,7 +836,7 @@ function TrajetsSection() {
     if (!window.confirm('Annuler ce trajet ? Les passagers seront notifiés.')) return
     try {
       await cancelTrip(id)
-      load()
+      load(page)
     } catch (err) {
       alert(err.response?.data?.error || 'Erreur.')
     }
@@ -824,7 +866,7 @@ function TrajetsSection() {
     try {
       await replaceVehicle(replacingTrip.id, replaceVehicleId)
       setReplacingTrip(null)
-      load()
+      load(page)
     } catch (err) {
       setReplaceError(err.response?.data?.error || 'Erreur lors du remplacement.')
     } finally {
@@ -843,7 +885,7 @@ function TrajetsSection() {
         departureDate: editForm.departureDate,
       })
       setEditingTrip(null)
-      load()
+      load(page)
     } catch (err) {
       setEditError(err.response?.data?.error || 'Erreur lors de la mise à jour.')
     } finally {
@@ -1113,9 +1155,93 @@ function TrajetsSection() {
         </form>
       )}
 
+      {/* ── Filtres ─────────────────────────────────────────────────── */}
+      <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 mb-4">
+        <div className="flex flex-wrap gap-3 items-end">
+          <div>
+            <label className="text-label-sm text-on-surface-variant block mb-1">Origine</label>
+            <select
+              value={filterOrigin}
+              onChange={(e) => setFilterOrigin(e.target.value)}
+              className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">Toutes</option>
+              {[...new Set(routes.map((r) => r.origin))].sort().map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-label-sm text-on-surface-variant block mb-1">Destination</label>
+            <select
+              value={filterDestination}
+              onChange={(e) => setFilterDestination(e.target.value)}
+              className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">Toutes</option>
+              {[...new Set(routes.map((r) => r.destination))].sort().map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-label-sm text-on-surface-variant block mb-1">Statut</label>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">Tous</option>
+              <option value="SCHEDULED">Prévu</option>
+              <option value="COMPLETED">Terminé</option>
+              <option value="CANCELLED">Annulé</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-label-sm text-on-surface-variant block mb-1">Période</label>
+            <div className="flex gap-1">
+              {[['all', 'Tout'], ['week', 'Semaine'], ['month', 'Mois']].map(([k, l]) => (
+                <button
+                  key={k}
+                  onClick={() => applyPeriod(k)}
+                  className={`px-3 py-1.5 rounded-lg text-label-sm border transition ${activePeriod === k ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container'}`}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+          {activePeriod === 'all' && (
+            <>
+              <div>
+                <label className="text-label-sm text-on-surface-variant block mb-1">Du</label>
+                <input type="date" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)}
+                  className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary" />
+              </div>
+              <div>
+                <label className="text-label-sm text-on-surface-variant block mb-1">Au</label>
+                <input type="date" value={filterTo} onChange={(e) => setFilterTo(e.target.value)}
+                  className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary" />
+              </div>
+            </>
+          )}
+          <div className="flex gap-2 ml-auto">
+            <button onClick={applyFilters} className="bg-primary text-on-primary px-4 py-1.5 rounded-lg text-label-sm hover:opacity-90 transition">
+              Filtrer
+            </button>
+            <button onClick={resetFilters} className="border border-outline-variant text-on-surface-variant px-4 py-1.5 rounded-lg text-label-sm hover:bg-surface-container transition">
+              Réinitialiser
+            </button>
+          </div>
+        </div>
+        {total > 0 && (
+          <p className="text-body-sm text-on-surface-variant mt-2">{total} trajet{total !== 1 ? 's' : ''} trouvé{total !== 1 ? 's' : ''}</p>
+        )}
+      </div>
+
       <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card overflow-hidden">
         {loading ? <Spinner /> : trips.length === 0 ? (
-          <EmptyState icon="schedule" text="Aucun trajet planifié" />
+          <EmptyState icon="schedule" text="Aucun trajet trouvé" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1199,6 +1325,33 @@ function TrajetsSection() {
           </div>
         )}
       </div>
+
+      {/* ── Pagination ───────────────────────────────────────────────── */}
+      {total > LIMIT && (
+        <div className="flex items-center justify-between mt-4">
+          <p className="text-body-sm text-on-surface-variant">
+            Page {page} / {Math.ceil(total / LIMIT)}
+          </p>
+          <div className="flex gap-2">
+            <button
+              disabled={page <= 1 || loading}
+              onClick={() => { const p = page - 1; setPage(p); load(p) }}
+              className="flex items-center gap-1 border border-outline-variant px-3 py-1.5 rounded-lg text-label-sm text-on-surface-variant hover:bg-surface-container disabled:opacity-40 transition"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>chevron_left</span>
+              Précédent
+            </button>
+            <button
+              disabled={page >= Math.ceil(total / LIMIT) || loading}
+              onClick={() => { const p = page + 1; setPage(p); load(p) }}
+              className="flex items-center gap-1 border border-outline-variant px-3 py-1.5 rounded-lg text-label-sm text-on-surface-variant hover:bg-surface-container disabled:opacity-40 transition"
+            >
+              Suivant
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>chevron_right</span>
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }
@@ -1476,6 +1629,7 @@ function PlacesSection() {
   const [loadingSeats, setLoadingSeats] = useState(false)
   const [updating, setUpdating] = useState(null)
   const [error, setError] = useState('')
+  const [initializingSeats, setInitializingSeats] = useState(false)
 
   useEffect(() => {
     listCompanyTrips({ limit: 200, status: 'SCHEDULED' })
@@ -1499,6 +1653,20 @@ function PlacesSection() {
   }, [])
 
   useEffect(() => { loadSeats(selectedTripId) }, [selectedTripId, loadSeats])
+
+  const handleInitSeats = async () => {
+    if (!selectedTrip?.vehicle?.id) return
+    setInitializingSeats(true)
+    setError('')
+    try {
+      await initVehicleSeats(selectedTrip.vehicle.id)
+      loadSeats(selectedTripId)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Erreur lors de l\'initialisation.')
+    } finally {
+      setInitializingSeats(false)
+    }
+  }
 
   const handleToggle = async (seat) => {
     if (seat.isReserved) return
@@ -1564,7 +1732,21 @@ function PlacesSection() {
           {loadingSeats ? (
             <Spinner />
           ) : seats.length === 0 ? (
-            <EmptyState icon="airline_seat_recline_extra" text="Aucun siège configuré pour ce véhicule" />
+            <div className="flex flex-col items-center gap-4 py-10">
+              <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '40px' }}>airline_seat_recline_extra</span>
+              <p className="text-body-md text-on-surface-variant">Aucun siège configuré pour ce véhicule</p>
+              {selectedTrip?.vehicle?.totalSeats > 0 && (
+                <button
+                  onClick={handleInitSeats}
+                  disabled={initializingSeats}
+                  className="flex items-center gap-2 bg-primary text-on-primary px-5 py-2 rounded-xl text-label-lg hover:opacity-90 disabled:opacity-50 transition"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>auto_fix_high</span>
+                  {initializingSeats ? 'Création…' : `Créer les ${selectedTrip.vehicle.totalSeats} sièges automatiquement`}
+                </button>
+              )}
+              {error && <ErrorMsg msg={error} />}
+            </div>
           ) : (
             <>
               <div className="flex flex-wrap gap-4 mb-5 text-body-sm text-on-surface-variant">

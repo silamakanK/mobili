@@ -48,4 +48,15 @@ async function deleteHandler(req, res, next) {
   }
 }
 
-module.exports = { listHandler, getByIdHandler, updateHandler, deleteHandler }
+async function initHandler(req, res, next) {
+  try {
+    const { vehicleId } = req.body
+    if (!vehicleId) return res.status(400).json({ success: false, error: 'vehicleId requis.' })
+    const seats = await seatsService.initVehicleSeats(vehicleId, req.user)
+    res.status(201).json({ success: true, data: seats })
+  } catch (err) {
+    next(err)
+  }
+}
+
+module.exports = { listHandler, getByIdHandler, updateHandler, deleteHandler, initHandler }

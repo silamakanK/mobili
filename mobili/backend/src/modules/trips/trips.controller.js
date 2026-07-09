@@ -53,12 +53,15 @@ const tripAdminSchema = z.object({
 
 async function listCompanyHandler(req, res, next) {
   try {
-    const { page, limit, from, to } = req.query
+    const { page, limit, from, to, status, origin, destination } = req.query
     const result = await tripsService.listCompanyTrips(req.user.companyId, {
       page: Number(page) || 1,
       limit: Number(limit) || 20,
       from,
       to,
+      status: status || undefined,
+      origin: origin || undefined,
+      destination: destination || undefined,
     })
     res.json({ success: true, data: result })
   } catch (err) {

@@ -111,10 +111,18 @@ async function getTodayTrips(companyId) {
   })
 }
 
-async function listCompanyTrips(companyId, { page = 1, limit = 20, from, to } = {}) {
+async function listCompanyTrips(
+  companyId,
+  { page = 1, limit = 20, from, to, status, origin, destination } = {}
+) {
   const skip = (page - 1) * limit
   const where = {
-    route: { companyId },
+    route: {
+      companyId,
+      ...(origin ? { origin: { contains: origin, mode: 'insensitive' } } : {}),
+      ...(destination ? { destination: { contains: destination, mode: 'insensitive' } } : {}),
+    },
+    ...(status ? { status } : {}),
     ...(from && to
       ? {
           departureDate: {
@@ -130,9 +138,9 @@ async function listCompanyTrips(companyId, { page = 1, limit = 20, from, to } = 
       include: {
         route: { select: { id: true, origin: true, destination: true } },
         vehicle: { select: { id: true, registrationNumber: true, type: true, totalSeats: true } },
-        reservations: { where: { status: 'CONFIRMED' }, select: { id: true } },
+        reservations: { where: { status: { in: ['PENDING', 'CONFIRMED'] } }, select: { id: true } },
       },
-      orderBy: [{ departureDate: 'desc' }, { departureTime: 'asc' }],
+      orderBy: [{ departureDate: 'asc' }, { departureTime: 'asc' }],
       skip,
       take: limit,
     }),

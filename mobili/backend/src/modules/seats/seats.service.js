@@ -152,6 +152,37 @@ async function unblockSeatForTrip(tripId, seatId, user) {
   })
 }
 
+async function initVehicleSeats(vehicleId, user) {
+  const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
+  if (!vehicle) {
+    const e = new Error('Véhicule introuvable.')
+    e.status = 404
+    throw e
+  }
+  if (user.role !== 'SUPER_ADMIN' && vehicle.companyId !== user.companyId) {
+    const e = new Error('Accès non autorisé.')
+    e.status = 403
+    throw e
+  }
+
+  const existing = await prisma.seat.count({ where: { vehicleId } })
+  if (existing > 0) {
+    const e = new Error('Les sièges sont déjà initialisés pour ce véhicule.')
+    e.status = 409
+    throw e
+  }
+
+  const data = Array.from({ length: vehicle.totalSeats }, (_, i) => ({
+    vehicleId,
+    seatNumber: String(i + 1).padStart(2, '0'),
+    type: 'STANDARD',
+    isAvailable: true,
+  }))
+
+  await prisma.seat.createMany({ data })
+  return prisma.seat.findMany({ where: { vehicleId }, orderBy: { seatNumber: 'asc' } })
+}
+
 module.exports = {
   listSeats,
   getSeatById,
@@ -160,4 +191,5 @@ module.exports = {
   getSeatsForTrip,
   blockSeatForTrip,
   unblockSeatForTrip,
+  initVehicleSeats,
 }
