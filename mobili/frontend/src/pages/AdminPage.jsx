@@ -764,11 +764,11 @@ function TrajetsSection() {
     const params = {
       page: p,
       limit: LIMIT,
-      status: opts.status ?? filterStatus || undefined,
-      origin: opts.origin ?? filterOrigin || undefined,
-      destination: opts.destination ?? filterDestination || undefined,
-      from: opts.from ?? filterFrom || undefined,
-      to: opts.to ?? filterTo || undefined,
+      status: (opts.status ?? filterStatus) || undefined,
+      origin: (opts.origin ?? filterOrigin) || undefined,
+      destination: (opts.destination ?? filterDestination) || undefined,
+      from: (opts.from ?? filterFrom) || undefined,
+      to: (opts.to ?? filterTo) || undefined,
     }
     Promise.all([
       listCompanyTrips(params),
