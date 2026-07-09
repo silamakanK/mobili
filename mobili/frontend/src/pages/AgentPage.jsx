@@ -442,7 +442,7 @@ export default function AgentPage() {
                       type="text"
                       value={manualQR}
                       onChange={(e) => setManualQR(e.target.value)}
-                      placeholder="QR-XXXXXXXXXXXXXXXX"
+                      placeholder="TKT-XXXXXXXX ou code QR complet"
                       className="flex-1 border border-outline-variant rounded-lg px-3 py-3 text-body-md text-on-surface bg-surface-container focus:outline-none focus:border-primary font-mono"
                     />
                     <button
