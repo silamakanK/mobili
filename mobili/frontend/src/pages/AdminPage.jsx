@@ -7,7 +7,7 @@ import { listVehicles, createVehicle, updateVehicle, deleteVehicle } from '../se
 import { listCompanyTrips, createTrip, updateTrip, cancelTrip, getTripPassengers } from '../services/trips-admin'
 import { listUsers, createAgent, updateUser } from '../services/users'
 import { listCompanyReservations } from '../services/reservations'
-import { listSeats, updateSeat } from '../services/seats'
+import { listSeats, updateSeat, getTripSeats, blockTripSeat, unblockTripSeat } from '../services/seats'
 import { listRecurringTrips, createRecurringTrip, generateTrips, deleteRecurringTrip, replaceVehicle } from '../services/recurring-trips'
 
 const ADMIN_ROLES = ['ADMIN_COMPANY', 'SUPER_ADMIN']
@@ -1469,82 +1469,96 @@ function PassengersModal({ trip, onClose }) {
 
 // ── Places ─────────────────────────────────────────────────────────────────────
 function PlacesSection() {
-  const [vehicles, setVehicles] = useState([])
-  const [selectedVehicleId, setSelectedVehicleId] = useState('')
+  const [trips, setTrips] = useState([])
+  const [selectedTripId, setSelectedTripId] = useState('')
   const [seats, setSeats] = useState([])
-  const [loadingVehicles, setLoadingVehicles] = useState(true)
+  const [loadingTrips, setLoadingTrips] = useState(true)
   const [loadingSeats, setLoadingSeats] = useState(false)
   const [updating, setUpdating] = useState(null)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    listVehicles({ limit: 100 })
+    listCompanyTrips({ limit: 200, status: 'SCHEDULED' })
       .then((res) => {
-        const v = res.data?.data?.vehicles || []
-        setVehicles(v)
-        if (v.length > 0) setSelectedVehicleId(v[0].id)
+        const t = res.data?.data?.trips || []
+        setTrips(t)
+        if (t.length > 0) setSelectedTripId(t[0].id)
       })
       .catch(() => {})
-      .finally(() => setLoadingVehicles(false))
+      .finally(() => setLoadingTrips(false))
   }, [])
 
-  useEffect(() => {
-    if (!selectedVehicleId) return
+  const loadSeats = useCallback((tripId) => {
+    if (!tripId) return
     setLoadingSeats(true)
-    listSeats(selectedVehicleId)
+    setSeats([])
+    getTripSeats(tripId)
       .then((res) => setSeats(res.data?.data || []))
       .catch(() => {})
       .finally(() => setLoadingSeats(false))
-  }, [selectedVehicleId])
+  }, [])
 
-  const handleToggleAvailability = async (seat) => {
+  useEffect(() => { loadSeats(selectedTripId) }, [selectedTripId, loadSeats])
+
+  const handleToggle = async (seat) => {
+    if (seat.isReserved) return
+    if (!seat.isAvailable && !seat.isTripBlocked) return
     setUpdating(seat.id)
+    setError('')
     try {
-      const newAvailability = !seat.isAvailable
-      await updateSeat(seat.id, { isAvailable: newAvailability })
-      setSeats((prev) => prev.map((s) => s.id === seat.id ? { ...s, isAvailable: newAvailability } : s))
+      if (seat.isTripBlocked) {
+        await unblockTripSeat(selectedTripId, seat.id)
+      } else {
+        await blockTripSeat(selectedTripId, seat.id)
+      }
+      loadSeats(selectedTripId)
     } catch (err) {
-      alert(err.response?.data?.error || 'Erreur.')
+      setError(err.response?.data?.error || 'Erreur.')
     } finally {
       setUpdating(null)
     }
   }
 
-  const selectedVehicle = vehicles.find((v) => v.id === selectedVehicleId)
-  const availableCount = seats.filter((s) => s.isAvailable).length
-  const blockedCount = seats.length - availableCount
+  const selectedTrip = trips.find((t) => t.id === selectedTripId)
+  const availableCount = seats.filter((s) => s.isAvailable && !s.isReserved && !s.isTripBlocked).length
+  const reservedCount = seats.filter((s) => s.isReserved).length
+  const blockedCount = seats.filter((s) => s.isTripBlocked).length
 
   return (
     <>
       <div className="mb-6">
         <h1 className="text-headline-md text-on-surface">Places</h1>
-        <p className="text-body-sm text-on-surface-variant mt-1">Gérez la disposition des sièges par véhicule.</p>
+        <p className="text-body-sm text-on-surface-variant mt-1">Gérez la disponibilité des sièges par trajet.</p>
       </div>
 
       <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 mb-6">
-        <label className="text-label-lg text-on-surface-variant block mb-2">Sélectionner un véhicule</label>
-        {loadingVehicles ? (
+        <label className="text-label-lg text-on-surface-variant block mb-2">Sélectionner un trajet</label>
+        {loadingTrips ? (
           <div className="h-10 bg-surface-container rounded-lg animate-pulse w-64" />
         ) : (
           <select
-            value={selectedVehicleId}
-            onChange={(e) => setSelectedVehicleId(e.target.value)}
-            className="w-full md:w-72 border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            value={selectedTripId}
+            onChange={(e) => setSelectedTripId(e.target.value)}
+            className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
           >
-            {vehicles.length === 0 && <option value="">Aucun véhicule enregistré</option>}
-            {vehicles.map((v) => (
-              <option key={v.id} value={v.id}>{v.registrationNumber} ({v.totalSeats} places)</option>
+            {trips.length === 0 && <option value="">Aucun trajet planifié</option>}
+            {trips.map((t) => (
+              <option key={t.id} value={t.id}>
+                {new Date(t.departureDate).toLocaleDateString('fr-FR')} · {t.departureTime?.slice(0,5)} · {t.route?.origin} → {t.route?.destination}
+              </option>
             ))}
           </select>
         )}
-        {selectedVehicle && !loadingSeats && seats.length > 0 && (
+        {selectedTrip && !loadingSeats && seats.length > 0 && (
           <div className="flex flex-wrap gap-4 mt-3 text-body-sm text-on-surface-variant">
-            <span>{availableCount}/{seats.length} places disponibles</span>
-            <span>{blockedCount} place{blockedCount !== 1 ? 's' : ''} bloquée{blockedCount !== 1 ? 's' : ''}</span>
+            <span className="text-primary font-medium">{availableCount} libre{availableCount !== 1 ? 's' : ''}</span>
+            <span className="text-error font-medium">{reservedCount} réservé{reservedCount !== 1 ? 's' : ''}</span>
+            {blockedCount > 0 && <span className="text-on-surface-variant font-medium">{blockedCount} bloqué{blockedCount !== 1 ? 's' : ''} manuellement</span>}
           </div>
         )}
       </div>
 
-      {selectedVehicleId && (
+      {selectedTripId && (
         <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5">
           <h2 className="text-headline-sm text-on-surface mb-4">Disposition des sièges</h2>
           {loadingSeats ? (
@@ -1559,36 +1573,52 @@ function PlacesSection() {
                   Disponible
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded bg-error-container/30 inline-block" />
-                  Bloqué
+                  <span className="w-4 h-4 rounded bg-error/80 inline-block" />
+                  Réservé
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded bg-surface-variant border border-outline-variant inline-block" />
+                  Bloqué (ce trajet)
                 </span>
               </div>
               <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-2">
-                {seats.map((seat) => (
-                  <button
-                    key={seat.id}
-                    onClick={() => handleToggleAvailability(seat)}
-                    disabled={updating === seat.id}
-                    title={seat.isAvailable
-                      ? `Siège ${seat.seatNumber} — Disponible (clic pour bloquer)`
-                      : `Siège ${seat.seatNumber} — Bloqué (clic pour libérer)`
-                    }
-                    className={`
-                      flex flex-col items-center justify-center rounded-lg py-2 px-1 border transition text-label-sm font-medium gap-0.5 cursor-pointer
-                      ${seat.isAvailable
-                        ? 'bg-secondary-container text-on-secondary-container border-secondary/30 hover:opacity-75'
-                        : 'bg-error-container/20 border-error-container/40 text-error hover:opacity-75'
+                {seats.map((seat) => {
+                  const isReserved = seat.isReserved
+                  const isTripBlocked = seat.isTripBlocked
+                  const isBroken = !seat.isAvailable && !isReserved && !isTripBlocked
+                  const canToggle = !isReserved && !isBroken
+                  return (
+                    <button
+                      key={seat.id}
+                      onClick={() => handleToggle(seat)}
+                      disabled={updating === seat.id || !canToggle}
+                      title={
+                        isReserved ? `Siège ${seat.seatNumber} — Réservé`
+                        : isTripBlocked ? `Siège ${seat.seatNumber} — Bloqué pour ce trajet (clic pour libérer)`
+                        : isBroken ? `Siège ${seat.seatNumber} — Hors service`
+                        : `Siège ${seat.seatNumber} — Disponible (clic pour bloquer)`
                       }
-                      ${updating === seat.id ? 'opacity-40' : ''}
-                    `}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>airline_seat_recline_extra</span>
-                    <span>{seat.seatNumber}</span>
-                  </button>
-                ))}
+                      className={`
+                        flex flex-col items-center justify-center rounded-lg py-2 px-1 border transition text-label-sm font-medium gap-0.5
+                        ${isReserved ? 'bg-error/80 text-on-primary border-error cursor-default'
+                          : isTripBlocked ? 'bg-surface-variant text-on-surface-variant border-outline-variant hover:opacity-75 cursor-pointer'
+                          : isBroken ? 'bg-error-container/20 text-error/50 border-error/20 cursor-default'
+                          : 'bg-secondary-container text-on-secondary-container border-secondary/30 hover:opacity-75 cursor-pointer'
+                        }
+                        ${updating === seat.id ? 'opacity-40' : ''}
+                      `}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>
+                        {isReserved ? 'person' : isTripBlocked ? 'block' : 'airline_seat_recline_extra'}
+                      </span>
+                      <span>{seat.seatNumber}</span>
+                    </button>
+                  )
+                })}
               </div>
+              {error && <ErrorMsg msg={error} />}
               <p className="text-body-sm text-on-surface-variant mt-4">
-                Cliquez sur un siège pour le bloquer ou le libérer.
+                Cliquez sur un siège disponible pour le bloquer pour ce trajet uniquement.
               </p>
             </>
           )}

@@ -66,6 +66,25 @@ async function getTripById(id) {
     err.status = 404
     throw err
   }
+
+  // Calculer la disponibilité réelle par trajet
+  const [reservedIds, blockedIds] = await Promise.all([
+    prisma.reservation
+      .findMany({
+        where: { tripId: id, status: { in: ['PENDING', 'CONFIRMED'] } },
+        select: { seatId: true },
+      })
+      .then((rs) => new Set(rs.map((r) => r.seatId))),
+    prisma.tripSeatBlock
+      .findMany({ where: { tripId: id }, select: { seatId: true } })
+      .then((bs) => new Set(bs.map((b) => b.seatId))),
+  ])
+
+  trip.vehicle.seats = trip.vehicle.seats.map((seat) => ({
+    ...seat,
+    isAvailable: seat.isAvailable && !reservedIds.has(seat.id) && !blockedIds.has(seat.id),
+  }))
+
   return trip
 }
 

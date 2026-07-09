@@ -8,6 +8,14 @@ function generateReservationCode() {
   return code
 }
 
+async function uniqueCode() {
+  let code
+  do {
+    code = generateReservationCode()
+  } while (await prisma.reservation.findUnique({ where: { reservationCode: code } }))
+  return code
+}
+
 async function createReservation({ userId, tripId, seatId }) {
   const trip = await prisma.trip.findUnique({ where: { id: tripId } })
   if (!trip) {
@@ -38,24 +46,29 @@ async function createReservation({ userId, tripId, seatId }) {
     throw err
   }
   if (!seat.isAvailable) {
-    const err = new Error('Ce siège est déjà réservé.')
+    const err = new Error('Ce siège est hors service.')
     err.status = 409
     throw err
   }
 
-  const existing = await prisma.reservation.findFirst({
-    where: { tripId, seatId, status: { in: ['PENDING', 'CONFIRMED'] } },
-  })
+  const [existing, tripBlock] = await Promise.all([
+    prisma.reservation.findFirst({
+      where: { tripId, seatId, status: { in: ['PENDING', 'CONFIRMED'] } },
+    }),
+    prisma.tripSeatBlock.findUnique({ where: { tripId_seatId: { tripId, seatId } } }),
+  ])
   if (existing) {
     const err = new Error('Ce siège est déjà réservé.')
     err.status = 409
     throw err
   }
+  if (tripBlock) {
+    const err = new Error('Ce siège est bloqué pour ce trajet.')
+    err.status = 409
+    throw err
+  }
 
-  let reservationCode
-  do {
-    reservationCode = generateReservationCode()
-  } while (await prisma.reservation.findUnique({ where: { reservationCode } }))
+  const reservationCode = await uniqueCode()
 
   return prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.create({
@@ -65,7 +78,6 @@ async function createReservation({ userId, tripId, seatId }) {
         seat: { select: { seatNumber: true, type: true } },
       },
     })
-    await tx.seat.update({ where: { id: seatId }, data: { isAvailable: false } })
     await tx.trip.update({ where: { id: tripId }, data: { availableSeats: { decrement: 1 } } })
     return reservation
   })
@@ -137,7 +149,6 @@ async function cancelReservation(id, userId) {
 
   await prisma.$transaction(async (tx) => {
     await tx.reservation.update({ where: { id }, data: { status: 'CANCELLED' } })
-    await tx.seat.update({ where: { id: reservation.seatId }, data: { isAvailable: true } })
     await tx.trip.update({
       where: { id: reservation.tripId },
       data: { availableSeats: { increment: 1 } },
@@ -178,8 +189,100 @@ async function listCompanyReservations(companyId, { page = 1, limit = 20, status
   return { reservations, total, page, limit }
 }
 
+async function createBulkReservations({ userId, tripId, seatIds }) {
+  if (new Set(seatIds).size !== seatIds.length) {
+    const err = new Error('La liste contient des sièges en double.')
+    err.status = 400
+    throw err
+  }
+
+  const trip = await prisma.trip.findUnique({ where: { id: tripId } })
+  if (!trip) {
+    const err = new Error('Trajet introuvable.')
+    err.status = 404
+    throw err
+  }
+  if (trip.status !== 'SCHEDULED') {
+    const err = new Error("Ce trajet n'est plus disponible.")
+    err.status = 400
+    throw err
+  }
+  if (trip.availableSeats < seatIds.length) {
+    const err = new Error('Pas assez de places disponibles pour ce trajet.')
+    err.status = 400
+    throw err
+  }
+
+  const seats = await prisma.seat.findMany({ where: { id: { in: seatIds } } })
+  if (seats.length !== seatIds.length) {
+    const err = new Error('Un ou plusieurs sièges sont introuvables.')
+    err.status = 404
+    throw err
+  }
+  for (const seat of seats) {
+    if (seat.vehicleId !== trip.vehicleId) {
+      const err = new Error(
+        `Le siège ${seat.seatNumber} n'appartient pas au véhicule de ce trajet.`
+      )
+      err.status = 400
+      throw err
+    }
+    if (!seat.isAvailable) {
+      const err = new Error(`Le siège ${seat.seatNumber} est hors service.`)
+      err.status = 409
+      throw err
+    }
+  }
+
+  const [existing, tripBlocks] = await Promise.all([
+    prisma.reservation.findFirst({
+      where: { tripId, seatId: { in: seatIds }, status: { in: ['PENDING', 'CONFIRMED'] } },
+    }),
+    prisma.tripSeatBlock.findMany({ where: { tripId, seatId: { in: seatIds } } }),
+  ])
+  if (existing) {
+    const err = new Error('Un ou plusieurs sièges sont déjà réservés.')
+    err.status = 409
+    throw err
+  }
+  if (tripBlocks.length > 0) {
+    const err = new Error('Un ou plusieurs sièges sont bloqués pour ce trajet.')
+    err.status = 409
+    throw err
+  }
+
+  const codes = await Promise.all(seatIds.map(() => uniqueCode()))
+
+  return prisma.$transaction(async (tx) => {
+    const reservations = await Promise.all(
+      seatIds.map((seatId, i) =>
+        tx.reservation.create({
+          data: {
+            userId,
+            tripId,
+            seatId,
+            reservationCode: codes[i],
+            status: 'PENDING',
+            totalAmount: trip.price,
+          },
+          include: {
+            trip: { include: { route: { select: { origin: true, destination: true } } } },
+            seat: { select: { seatNumber: true, type: true } },
+          },
+        })
+      )
+    )
+    await tx.trip.update({
+      where: { id: tripId },
+      data: { availableSeats: { decrement: seatIds.length } },
+    })
+    return reservations
+  })
+}
+
 module.exports = {
   createReservation,
+  createBulkReservations,
   getUserReservations,
   getReservationById,
   cancelReservation,

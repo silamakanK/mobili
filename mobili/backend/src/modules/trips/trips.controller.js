@@ -1,5 +1,6 @@
 const { z } = require('zod')
 const tripsService = require('./trips.service')
+const seatsService = require('../seats/seats.service')
 
 const searchSchema = z.object({
   from: z.string().min(1),
@@ -104,6 +105,33 @@ async function getPassengersHandler(req, res, next) {
   }
 }
 
+async function getTripSeatsHandler(req, res, next) {
+  try {
+    const seats = await seatsService.getSeatsForTrip(req.params.id, req.user)
+    res.json({ success: true, data: seats })
+  } catch (err) {
+    next(err)
+  }
+}
+
+async function blockTripSeatHandler(req, res, next) {
+  try {
+    await seatsService.blockSeatForTrip(req.params.id, req.params.seatId, req.user)
+    res.json({ success: true })
+  } catch (err) {
+    next(err)
+  }
+}
+
+async function unblockTripSeatHandler(req, res, next) {
+  try {
+    await seatsService.unblockSeatForTrip(req.params.id, req.params.seatId, req.user)
+    res.json({ success: true })
+  } catch (err) {
+    next(err)
+  }
+}
+
 module.exports = {
   searchHandler,
   getByIdHandler,
@@ -113,4 +141,7 @@ module.exports = {
   updateTripHandler,
   cancelTripHandler,
   getPassengersHandler,
+  getTripSeatsHandler,
+  blockTripSeatHandler,
+  unblockTripSeatHandler,
 }
