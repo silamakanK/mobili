@@ -1727,9 +1727,10 @@ function PlacesSection() {
     if (!tripId) return
     setLoadingSeats(true)
     setSeats([])
+    setError('')
     getTripSeats(tripId)
       .then((res) => setSeats(res.data?.data || []))
-      .catch(() => {})
+      .catch((err) => setError(err.response?.data?.error || `Erreur chargement sièges (${err.response?.status ?? 'réseau'})`))
       .finally(() => setLoadingSeats(false))
   }, [])
 
@@ -1820,7 +1821,7 @@ function PlacesSection() {
           ) : seats.length === 0 ? (
             <div className="flex flex-col items-center gap-4 py-10">
               <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '40px' }}>airline_seat_recline_extra</span>
-              <p className="text-body-md text-on-surface-variant">Aucun siège configuré pour ce véhicule</p>
+              <p className="text-body-md text-on-surface-variant">{error ? error : 'Aucun siège configuré pour ce véhicule'}</p>
               {selectedTrip?.vehicle?.totalSeats > 0 && (
                 <button
                   onClick={handleInitSeats}
