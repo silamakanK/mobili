@@ -1629,83 +1629,25 @@ function PassengersModal({ trip, onClose }) {
 }
 
 // ── Places ─────────────────────────────────────────────────────────────────────
-function BusSeatMap({ seats, updating, onToggle }) {
-  // Group seats into rows of 4 (2 left | aisle | 2 right)
-  const rows = []
-  for (let i = 0; i < seats.length; i += 4) {
-    rows.push(seats.slice(i, i + 4))
-  }
-
-  return (
-    <div className="flex justify-center overflow-x-auto py-2">
-      <div style={{
-        background: '#f0f0f2',
-        border: '2px solid #c8c8cc',
-        borderRadius: '40px 40px 20px 20px',
-        padding: '16px 20px 20px',
-        minWidth: '230px',
-        width: '260px',
-      }}>
-        {/* Front row: door + steering wheel */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '0 4px' }}>
-          <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '26px' }}>door_front</span>
-          <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '26px' }}>settings</span>
-        </div>
-        <div style={{ borderTop: '2px solid #c0c0c4', marginBottom: '12px' }} />
-
-        {/* Seat rows */}
-        {rows.map((row, rowIdx) => (
-          <div key={rowIdx} style={{ display: 'flex', gap: '5px', marginBottom: '5px', justifyContent: 'center' }}>
-            {/* Left pair */}
-            <div style={{ display: 'flex', gap: '4px' }}>
-              {[0, 1].map((col) => {
-                const seat = row[col]
-                return seat ? (
-                  <BusSeatBtn key={seat.id} seat={seat} updating={updating} onToggle={onToggle} />
-                ) : (
-                  <div key={col} style={{ width: '44px', height: '44px' }} />
-                )
-              })}
-            </div>
-            {/* Aisle */}
-            <div style={{ width: '16px' }} />
-            {/* Right pair */}
-            <div style={{ display: 'flex', gap: '4px' }}>
-              {[2, 3].map((col) => {
-                const seat = row[col]
-                return seat ? (
-                  <BusSeatBtn key={seat.id} seat={seat} updating={updating} onToggle={onToggle} />
-                ) : (
-                  <div key={col} style={{ width: '44px', height: '44px' }} />
-                )
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function BusSeatBtn({ seat, updating, onToggle }) {
+function AdminSeatButton({ seat, updating, onToggle }) {
   const isReserved = seat.isReserved
   const isTripBlocked = seat.isTripBlocked
   const isBroken = !seat.isAvailable && !isReserved && !isTripBlocked
   const canToggle = !isReserved && !isBroken
   const isUpdating = updating === seat.id
 
-  let bg, color, border, cursor, title
+  let className, title
   if (isReserved) {
-    bg = '#e53935'; color = '#fff'; border = '#c62828'; cursor = 'default'
-    title = `Siège ${seat.seatNumber} — Réservé (application)`
+    className = 'bg-error-container/40 text-on-error-container cursor-not-allowed opacity-60'
+    title = `Siège ${seat.seatNumber} — Réservé via l'application`
   } else if (isTripBlocked) {
-    bg = '#bdbdbd'; color = '#555'; border = '#9e9e9e'; cursor = 'pointer'
-    title = `Siège ${seat.seatNumber} — Occupé (réservation physique) — clic pour libérer`
+    className = 'bg-secondary-container/60 text-on-secondary-container border border-secondary/40 hover:opacity-80 cursor-pointer'
+    title = `Siège ${seat.seatNumber} — Occupé (physique) — clic pour libérer`
   } else if (isBroken) {
-    bg = '#fce4e4'; color = '#e57373'; border = '#ef9a9a'; cursor = 'default'
+    className = 'bg-error-container/20 text-error/40 cursor-not-allowed opacity-50'
     title = `Siège ${seat.seatNumber} — Hors service`
   } else {
-    bg = '#c8f0e0'; color = '#00503a'; border = '#83d7b4'; cursor = 'pointer'
+    className = 'bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high cursor-pointer'
     title = `Siège ${seat.seatNumber} — Libre — clic pour marquer comme occupé`
   }
 
@@ -1714,38 +1656,49 @@ function BusSeatBtn({ seat, updating, onToggle }) {
       onClick={() => canToggle && onToggle(seat)}
       disabled={isUpdating || !canToggle}
       title={title}
-      style={{
-        position: 'relative',
-        width: '44px',
-        height: '44px',
-        borderRadius: '8px',
-        border: `2px solid ${border}`,
-        background: bg,
-        color,
-        cursor,
-        fontSize: '11px',
-        fontWeight: '600',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '1px',
-        opacity: isUpdating ? 0.4 : 1,
-        transition: 'opacity 0.15s',
-        overflow: 'hidden',
-      }}
+      className={`w-11 h-11 rounded-lg text-label-md font-medium transition-colors relative ${className} ${isUpdating ? 'opacity-40' : ''}`}
     >
-      {seat.seatNumber}
-      {/* Diagonal line for trip-blocked seats */}
-      {isTripBlocked && (
-        <svg
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
-          viewBox="0 0 44 44"
-        >
-          <line x1="4" y1="4" x2="40" y2="40" stroke="#888" strokeWidth="2" strokeLinecap="round" />
-        </svg>
+      {isReserved ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>person</span>
+        </span>
+      ) : isTripBlocked ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>block</span>
+        </span>
+      ) : (
+        seat.seatNumber
       )}
     </button>
+  )
+}
+
+function BusSeatMap({ seats, updating, onToggle }) {
+  const rows = []
+  for (let i = 0; i < seats.length; i += 4) rows.push(seats.slice(i, i + 4))
+
+  return (
+    <div className="max-w-[320px] mx-auto bg-surface-container-lowest border-2 border-outline-variant rounded-t-[3rem] rounded-b-xl pt-8 pb-4 px-6">
+      <div className="flex justify-end mb-6">
+        <div className="w-11 h-11 rounded-lg bg-surface-container border border-outline-variant flex items-center justify-center">
+          <span className="material-symbols-outlined text-outline" style={{ fontSize: '18px' }}>steering</span>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {rows.map((row, ri) => (
+          <div key={ri} className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr 40px 1fr 1fr' }}>
+            {row.slice(0, 2).map((seat, ci) => (
+              <AdminSeatButton key={seat?.id ?? `${ri}-L-${ci}`} seat={seat} updating={updating} onToggle={onToggle} />
+            ))}
+            <div />
+            {(row.length > 2 ? row.slice(2, 4) : []).map((seat, ci) => (
+              <AdminSeatButton key={seat?.id ?? `${ri}-R-${ci}`} seat={seat} updating={updating} onToggle={onToggle} />
+            ))}
+            {row.length <= 2 && [0, 1].map((ci) => <div key={`empty-${ci}`} />)}
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -1860,25 +1813,7 @@ function PlacesSection() {
 
       {selectedTripId && (
         <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-headline-sm text-on-surface">Plan des sièges</h2>
-            {seats.length > 0 && (
-              <div className="flex flex-wrap gap-3 text-label-md text-on-surface-variant">
-                <span className="flex items-center gap-1.5">
-                  <span style={{ width: 14, height: 14, borderRadius: 3, background: '#c8f0e0', border: '1.5px solid #83d7b4', display: 'inline-block' }} />
-                  Libre
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span style={{ width: 14, height: 14, borderRadius: 3, background: '#e53935', border: '1.5px solid #c62828', display: 'inline-block' }} />
-                  Réservé (app)
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span style={{ width: 14, height: 14, borderRadius: 3, background: '#bdbdbd', border: '1.5px solid #9e9e9e', display: 'inline-block' }} />
-                  Occupé (physique)
-                </span>
-              </div>
-            )}
-          </div>
+          <h2 className="text-headline-sm text-on-surface mb-4">Plan des sièges</h2>
 
           {loadingSeats ? (
             <Spinner />
@@ -1901,10 +1836,24 @@ function PlacesSection() {
           ) : (
             <>
               <BusSeatMap seats={seats} updating={updating} onToggle={handleToggle} />
-              {error && <div className="mt-4"><ErrorMsg msg={error} /></div>}
-              <p className="text-body-sm text-on-surface-variant mt-4 text-center">
-                Cliquez sur un siège <span style={{ color: '#00503a', fontWeight: 600 }}>libre</span> pour le marquer comme occupé (réservation physique), ou sur un siège <span style={{ color: '#757575', fontWeight: 600 }}>occupé</span> pour le libérer.
+              <div className="flex items-center justify-center gap-6 mt-6">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-surface-container border border-outline-variant" />
+                  <span className="text-body-sm text-on-surface-variant">Libre</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-error-container/40 opacity-60" />
+                  <span className="text-body-sm text-on-surface-variant">Réservé (app)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-secondary-container/60 border border-secondary/40" />
+                  <span className="text-body-sm text-on-surface-variant">Occupé (physique)</span>
+                </div>
+              </div>
+              <p className="text-body-sm text-on-surface-variant mt-3 text-center">
+                Cliquez sur un siège <strong>libre</strong> pour le marquer comme occupé, ou sur un siège <strong>occupé (physique)</strong> pour le libérer.
               </p>
+              {error && <div className="mt-4"><ErrorMsg msg={error} /></div>}
             </>
           )}
         </div>
