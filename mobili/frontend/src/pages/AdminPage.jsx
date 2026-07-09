@@ -2165,7 +2165,7 @@ function RecurringTripsSection({ user }) {
         ...form,
         dayOfWeek: parseInt(form.dayOfWeek, 10),
         price: parseInt(form.price, 10),
-        validFrom: form.validFrom ? new Date(form.validFrom).toISOString() : undefined,
+        validFrom: form.validFrom || undefined,
       })
       setShowForm(false)
       setForm({ routeId: '', vehicleId: '', dayOfWeek: '1', departureTime: '08:00', price: '', validFrom: '' })
