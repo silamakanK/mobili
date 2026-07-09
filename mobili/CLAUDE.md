@@ -29,7 +29,8 @@ Parcours principal : recherche de trajet → comparaison des compagnies → rés
 | ORM | **Prisma** (pas Sequelize) |
 | Base de données | PostgreSQL |
 | Authentification | JWT + RBAC |
-| Paiement | PayDunya (agrège Orange Money, Moov Money, Wave, carte) |
+| Paiement mobile | Orange Money WebPay (API directe — Mali, couverture Orange Money) |
+| Paiement carte | Stripe (carte internationale) |
 | PDF | PDFKit ou équivalent |
 | QR Code | bibliothèque Node.js (ex. qrcode) |
 | Notifications | SMS (Infobip ou Twilio) + Email (SMTP / Mailgun) |
@@ -109,7 +110,7 @@ Un agent ne voit que les trajets de sa compagnie. Un admin compagnie ne modifie 
 - Rechercher un trajet (origine, destination, date)
 - Comparer les offres disponibles (compagnie, horaire, prix, places restantes)
 - Réserver un siège
-- Payer en ligne via PayDunya (XOF)
+- Payer en ligne via CinetPay (XOF — Orange Money, Wave, Moov Money, carte)
 - Télécharger l'e-ticket PDF
 - Consulter l'historique des réservations
 
@@ -202,7 +203,9 @@ GET    /api/reservations/:id
 ### Payments
 ```
 POST   /api/payments/initiate
-POST   /api/payments/webhook        (PayDunya callback — public)
+POST   /api/payments/webhook        (CinetPay IPN callback — public)
+POST   /api/payments/stripe-webhook (Stripe webhook — public)
+POST   /api/payments/:id/reverify   (re-vérification manuelle — authentifié)
 GET    /api/payments/:id/status
 ```
 
@@ -246,14 +249,14 @@ GET    /api/stats/company/:id
 
 ## Règles métier
 
-1. Une réservation n'est confirmée qu'après validation du paiement (webhook PayDunya).
+1. Une réservation n'est confirmée qu'après validation du paiement (webhook CinetPay IPN ou Stripe).
 2. Un billet est lié à exactement 1 trajet + 1 date + 1 heure + 1 siège.
 3. Un siège ne peut être attribué qu'à un seul voyageur par trajet (verrouillage transactionnel).
 4. Un QR code est à usage unique — le 2ème scan retourne ALREADY_USED.
 5. Un billet doit toujours contenir un code alphanumérique court de secours (pour les agents sans réseau).
 6. Détection de doublon de réservation dans une fenêtre de 5 minutes.
-7. PayDunya est l'unique agrégateur de paiement — pas d'intégration directe Orange/Wave/Moov.
-8. La confirmation du paiement est asynchrone (webhook) — jamais synchrone.
+7. CinetPay est l'agrégateur principal (Orange Money, Wave, Moov Money, carte en XOF) — pas d'intégration directe opérateur.
+8. La confirmation du paiement est asynchrone (webhook IPN) — jamais synchrone.
 9. Toutes les opérations sensibles (paiement, validation, connexion) doivent être journalisées.
 10. Les données bancaires ne sont jamais stockées dans Mobili.
 
@@ -344,11 +347,13 @@ DATABASE_URL=postgresql://user:password@localhost:5432/mobili_db
 JWT_SECRET=
 JWT_EXPIRES_IN=7d
 
-# PayDunya
-PAYDUNYA_MASTER_KEY=
-PAYDUNYA_PRIVATE_KEY=
-PAYDUNYA_TOKEN=
-PAYDUNYA_MODE=test
+# CinetPay (agrégateur principal — Orange Money, Wave, Moov Money, carte XOF)
+CINETPAY_API_KEY=
+CINETPAY_SITE_ID=
+
+# Stripe (optionnel — carte internationale)
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
 
 # Notifications
 SMTP_HOST=
@@ -403,7 +408,7 @@ FRONTEND_URL=http://localhost:5173
 
 **Sprint 2**
 - Réservation de siège
-- Paiement (PayDunya + webhook)
+- Paiement (CinetPay IPN + webhook)
 - Génération e-ticket PDF + QR code
 - Liste passagers + téléchargement billet
 
@@ -433,7 +438,7 @@ FRONTEND_URL=http://localhost:5173
 | PostgreSQL | **Render** | Free (90 jours puis renouveler) | Intégré, connexion interne rapide |
 
 **Pourquoi pas tout sur Vercel ?**
-Les webhooks PayDunya nécessitent un serveur persistant. Vercel utilise des fonctions serverless avec cold starts (~1-3s) qui peuvent faire échouer silencieusement un webhook de confirmation de paiement. Render garde le serveur actif.
+Les webhooks CinetPay IPN nécessitent un serveur persistant. Vercel utilise des fonctions serverless avec cold starts (~1-3s) qui peuvent faire échouer silencieusement un webhook de confirmation de paiement. Render garde le serveur actif.
 
 **Limite du free tier Render :** le service s'endort après 15 min d'inactivité (premier wake-up ~30s). Acceptable pour un projet académique — en production réelle, passer au plan payant ou utiliser un ping de keepalive.
 
@@ -452,10 +457,10 @@ Les webhooks PayDunya nécessitent un serveur persistant. Vercel utilise des fon
 DATABASE_URL          (fourni automatiquement par Render PostgreSQL)
 JWT_SECRET
 JWT_EXPIRES_IN=7d
-PAYDUNYA_MASTER_KEY
-PAYDUNYA_PRIVATE_KEY
-PAYDUNYA_TOKEN
-PAYDUNYA_MODE=live
+CINETPAY_API_KEY      (clé API CinetPay — dashboard.cinetpay.com)
+CINETPAY_SITE_ID      (identifiant du site CinetPay)
+STRIPE_SECRET_KEY     (optionnel — paiements carte internationale)
+STRIPE_WEBHOOK_SECRET (optionnel — vérification signature webhook Stripe)
 FRONTEND_URL          (URL Vercel de production)
 SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS
 SMS_API_KEY
@@ -564,7 +569,7 @@ updates:
 | Secrets dans le code | Variables d'environnement uniquement — `.env` dans `.gitignore` |
 | Dépendances vulnérables | Dependabot + `npm audit` dans CI |
 | JWT volé | Expiration courte (7d) + HTTPS obligatoire |
-| Données bancaires | Jamais stockées — PayDunya gère tout |
+| Données bancaires | Jamais stockées — CinetPay / Stripe gèrent tout |
 | Accès non autorisé | RBAC middleware sur chaque route protégée |
 | Logs sensibles | Winston — ne jamais logger les tokens, mots de passe, données bancaires |
 

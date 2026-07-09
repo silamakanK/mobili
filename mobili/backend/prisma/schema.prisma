@@ -37,6 +37,8 @@ enum PaymentStatus {
   CONFIRMED
   FAILED
   REFUNDED
+  CANCELLED
+  EXPIRED
 }
 
 enum ValidationStatus {
@@ -99,9 +101,10 @@ model Vehicle {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id])
-  seats   Seat[]
-  trips   Trip[]
+  company        Company        @relation(fields: [companyId], references: [id])
+  seats          Seat[]
+  trips          Trip[]
+  recurringTrips RecurringTrip[]
 
   @@index([companyId])
 }
@@ -117,8 +120,9 @@ model Route {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id])
-  trips   Trip[]
+  company        Company        @relation(fields: [companyId], references: [id])
+  trips          Trip[]
+  recurringTrips RecurringTrip[]
 
   @@index([companyId])
   @@index([origin, destination])
@@ -136,13 +140,18 @@ model Trip {
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
-  route        Route         @relation(fields: [routeId], references: [id])
-  vehicle      Vehicle       @relation(fields: [vehicleId], references: [id])
-  reservations Reservation[]
+  recurringTripId String?
+
+  route         Route          @relation(fields: [routeId], references: [id])
+  vehicle       Vehicle        @relation(fields: [vehicleId], references: [id])
+  recurringTrip RecurringTrip? @relation(fields: [recurringTripId], references: [id])
+  reservations  Reservation[]
+  seatBlocks    TripSeatBlock[]
 
   @@index([routeId])
   @@index([vehicleId])
   @@index([departureDate])
+  @@index([recurringTripId])
 }
 
 model Seat {
@@ -154,11 +163,25 @@ model Seat {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  vehicle      Vehicle       @relation(fields: [vehicleId], references: [id])
+  vehicle      Vehicle        @relation(fields: [vehicleId], references: [id])
   reservations Reservation[]
+  tripBlocks   TripSeatBlock[]
 
   @@unique([vehicleId, seatNumber])
   @@index([vehicleId])
+}
+
+model TripSeatBlock {
+  id        String   @id @default(uuid())
+  tripId    String
+  seatId    String
+  createdAt DateTime @default(now())
+
+  trip Trip @relation(fields: [tripId], references: [id])
+  seat Seat @relation(fields: [seatId], references: [id])
+
+  @@unique([tripId, seatId])
+  @@index([tripId])
 }
 
 model Reservation {
@@ -244,4 +267,26 @@ model Notification {
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
+}
+
+// Modèle de trajet récurrent : génère automatiquement les trajets hebdomadaires
+model RecurringTrip {
+  id            String    @id @default(uuid())
+  routeId       String
+  vehicleId     String
+  dayOfWeek     Int       // 0=Dimanche  1=Lundi … 6=Samedi
+  departureTime String    // "HH:MM"
+  price         Int
+  isActive      Boolean   @default(true)
+  validFrom     DateTime  @default(now())
+  validUntil    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  route   Route   @relation(fields: [routeId], references: [id])
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+  trips   Trip[]
+
+  @@index([routeId])
+  @@index([vehicleId])
 }

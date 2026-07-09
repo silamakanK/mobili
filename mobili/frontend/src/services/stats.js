@@ -1,4 +1,4 @@
 import api from './api'
 
-export const getGlobalStats = () => api.get('/api/stats/global')
-export const getCompanyStats = (id) => api.get(`/api/stats/company/${id}`)
+export const getGlobalStats = (params = {}) => api.get('/api/stats/global', { params })
+export const getCompanyStats = (id, params = {}) => api.get(`/api/stats/company/${id}`, { params })

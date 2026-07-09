@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: [develop, main]
   pull_request:
     branches: [develop, main]
 
@@ -38,6 +40,12 @@ jobs:
         working-directory: mobili/backend
         run: npm ci
 
+      - name: Generate Prisma client
+        working-directory: mobili/backend
+        env:
+          DATABASE_URL: postgresql://mobili:mobili_test@localhost:5432/mobili_test
+        run: npx prisma generate
+
       - name: Run Prisma migrate
         working-directory: mobili/backend
         env:
@@ -61,11 +69,33 @@ jobs:
         run: npm test
 
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v4
+        uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
         with:
           args: >
-            -Dsonar.projectKey=mobili
+            -Dsonar.projectKey=silamakanK_mobili
+            -Dsonar.organization=silamakank
             -Dsonar.sources=mobili/backend/src
             -Dsonar.javascript.lcov.reportPaths=mobili/backend/coverage/lcov.info
+
+  deploy:
+    needs: lint-and-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy backend to Render (prod)
+        if: github.ref == 'refs/heads/main'
+        run: curl -s "$HOOK"
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_BACKEND_PROD }}
+
+      - name: Deploy backend to Render (staging)
+        if: github.ref == 'refs/heads/develop'
+        run: curl -s "$HOOK"
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_BACKEND_STAGING }}
+
+      - name: Frontend
+        run: echo "Frontend déployé automatiquement par Vercel via GitHub integration"

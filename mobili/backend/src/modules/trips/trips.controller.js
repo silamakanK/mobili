@@ -1,10 +1,14 @@
 const { z } = require('zod')
 const tripsService = require('./trips.service')
+const seatsService = require('../seats/seats.service')
 
 const searchSchema = z.object({
   from: z.string().min(1),
   to: z.string().min(1),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 })
 
 async function searchHandler(req, res, next) {
@@ -49,12 +53,15 @@ const tripAdminSchema = z.object({
 
 async function listCompanyHandler(req, res, next) {
   try {
-    const { page, limit, from, to } = req.query
+    const { page, limit, from, to, status, origin, destination } = req.query
     const result = await tripsService.listCompanyTrips(req.user.companyId, {
       page: Number(page) || 1,
       limit: Number(limit) || 20,
       from,
       to,
+      status: status || undefined,
+      origin: origin || undefined,
+      destination: destination || undefined,
     })
     res.json({ success: true, data: result })
   } catch (err) {
@@ -101,6 +108,33 @@ async function getPassengersHandler(req, res, next) {
   }
 }
 
+async function getTripSeatsHandler(req, res, next) {
+  try {
+    const seats = await seatsService.getSeatsForTrip(req.params.id, req.user)
+    res.json({ success: true, data: seats })
+  } catch (err) {
+    next(err)
+  }
+}
+
+async function blockTripSeatHandler(req, res, next) {
+  try {
+    await seatsService.blockSeatForTrip(req.params.id, req.params.seatId, req.user)
+    res.json({ success: true })
+  } catch (err) {
+    next(err)
+  }
+}
+
+async function unblockTripSeatHandler(req, res, next) {
+  try {
+    await seatsService.unblockSeatForTrip(req.params.id, req.params.seatId, req.user)
+    res.json({ success: true })
+  } catch (err) {
+    next(err)
+  }
+}
+
 module.exports = {
   searchHandler,
   getByIdHandler,
@@ -110,4 +144,7 @@ module.exports = {
   updateTripHandler,
   cancelTripHandler,
   getPassengersHandler,
+  getTripSeatsHandler,
+  blockTripSeatHandler,
+  unblockTripSeatHandler,
 }

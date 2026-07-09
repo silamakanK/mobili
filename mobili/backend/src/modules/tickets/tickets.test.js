@@ -62,10 +62,13 @@ beforeAll(async () => {
     .send({ tripId, seatId })
   const reservationCode = resaRes.body.data.reservationCode
 
-  await request(app).post('/api/payments/initiate').set('Authorization', `Bearer ${token}`).send({
-    reservationId: resaRes.body.data.id,
-    method: 'WAVE',
-  })
+  await request(app)
+    .post('/api/payments/initiate')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      reservationIds: [resaRes.body.data.id],
+      method: 'ORANGE_MONEY',
+    })
 
   await request(app)
     .post('/api/payments/webhook')

@@ -10,6 +10,7 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import AgentPage from './pages/AgentPage'
 import AdminPage from './pages/AdminPage'
+import PaymentReturnPage from './pages/PaymentReturnPage'
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/agent" element={<AgentPage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/payment/return" element={<PaymentReturnPage />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

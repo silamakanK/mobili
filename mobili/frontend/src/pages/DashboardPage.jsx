@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react'
+import PropTypes from 'prop-types'
+import { useState, useEffect, useCallback } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import BottomNav from '../components/BottomNav'
 import { useAuth } from '../contexts/AuthContext'
-import { getMyReservations } from '../services/reservations'
+import { getMyReservations, cancelReservation } from '../services/reservations'
+import { updateMe } from '../services/users'
 
 const STATUS_CONFIG = {
   CONFIRMED: { label: 'Payé', className: 'bg-secondary-container text-on-secondary-container' },
@@ -21,58 +23,182 @@ function StatusBadge({ status }) {
   )
 }
 
-function ReservationRow({ reservation }) {
+StatusBadge.propTypes = {
+  status: PropTypes.string.isRequired,
+}
+
+function ReservationRow({ reservation, onCancel }) {
+  const [cancelling, setCancelling] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const trip = reservation.trip
   const origin = trip?.route?.origin || trip?.origin || '—'
   const destination = trip?.route?.destination || trip?.destination || '—'
 
+  async function handleConfirmCancel() {
+    setCancelling(true)
+    try {
+      await cancelReservation(reservation.id)
+      setConfirmOpen(false)
+      setCancelling(false)
+      onCancel()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Erreur lors de l\'annulation.')
+      setCancelling(false)
+      setConfirmOpen(false)
+    }
+  }
+
   return (
-    <div className="flex items-center gap-4 py-3 border-b border-outline-variant last:border-0">
-      <div className="flex-1 min-w-0">
-        <p className="text-body-md text-on-surface font-medium truncate">
-          {origin} → {destination}
-        </p>
-        <p className="text-body-sm text-on-surface-variant">
-          {trip?.departureDate ? new Date(trip.departureDate).toLocaleDateString('fr-FR') : '—'}
-          {trip?.departureTime ? ` · ${trip.departureTime}` : ''}
-        </p>
+    <div className="border-b border-outline-variant last:border-0">
+      <div className="flex items-center gap-3 py-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-body-md text-on-surface font-medium truncate">
+            {origin} → {destination}
+          </p>
+          <p className="text-body-sm text-on-surface-variant">
+            {trip?.departureDate ? new Date(trip.departureDate).toLocaleDateString('fr-FR') : '—'}
+            {trip?.departureTime ? ` · ${trip.departureTime}` : ''}
+          </p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-body-md text-on-surface mb-1">
+            {(reservation.totalAmount || 0).toLocaleString('fr-FR')} FCFA
+          </p>
+          <StatusBadge status={reservation.status} />
+        </div>
+        {reservation.status === 'PENDING' && (
+          <>
+            <Link
+              to={`/payment?reservationId=${reservation.id}`}
+              className="shrink-0 bg-primary text-on-primary text-label-md px-3 py-1.5 rounded-lg hover:bg-primary-container transition-colors"
+            >
+              Payer
+            </Link>
+            <button
+              onClick={() => setConfirmOpen((v) => !v)}
+              disabled={cancelling}
+              title="Annuler la réservation"
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-error hover:bg-error-container/20 transition-colors disabled:opacity-40"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>cancel</span>
+            </button>
+          </>
+        )}
+        {reservation.ticket?.id && (
+          <Link
+            to={`/ticket/${reservation.ticket.id}`}
+            className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container transition-colors"
+          >
+            <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '18px' }}>receipt</span>
+          </Link>
+        )}
       </div>
-      <div className="text-right shrink-0">
-        <p className="text-body-md text-on-surface mb-1">
-          {(reservation.totalAmount || 0).toLocaleString('fr-FR')} FCFA
-        </p>
-        <StatusBadge status={reservation.status} />
-      </div>
-      {reservation.ticket?.id && (
-        <Link
-          to={`/ticket/${reservation.ticket.id}`}
-          className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container transition-colors"
-        >
-          <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '18px' }}>receipt</span>
-        </Link>
+
+      {confirmOpen && (
+        <div className="flex items-center justify-between gap-3 pb-3 px-0">
+          <p className="text-body-sm text-on-surface-variant">Confirmer l&apos;annulation de cette réservation ?</p>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={handleConfirmCancel}
+              disabled={cancelling}
+              className="bg-error text-on-error text-label-md px-3 py-1.5 rounded-lg hover:opacity-90 transition disabled:opacity-50 flex items-center gap-1"
+            >
+              {cancelling && <span className="animate-spin w-3 h-3 border-2 border-on-error border-t-transparent rounded-full" />}
+              Oui, annuler
+            </button>
+            <button
+              onClick={() => setConfirmOpen(false)}
+              className="text-on-surface-variant text-label-md px-3 py-1.5 rounded-lg hover:bg-surface-container transition"
+            >
+              Garder
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
 }
 
+ReservationRow.propTypes = {
+  reservation: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    status: PropTypes.string.isRequired,
+    totalAmount: PropTypes.number,
+    trip: PropTypes.shape({
+      route: PropTypes.shape({
+        origin: PropTypes.string,
+        destination: PropTypes.string,
+      }),
+      origin: PropTypes.string,
+      destination: PropTypes.string,
+      departureDate: PropTypes.string,
+      departureTime: PropTypes.string,
+    }),
+    ticket: PropTypes.shape({
+      id: PropTypes.string,
+    }),
+  }).isRequired,
+  onCancel: PropTypes.func.isRequired,
+}
+
 export default function DashboardPage() {
-  const { isAuthenticated, user, logout } = useAuth()
+  const { isAuthenticated, user, logout, updateUser } = useAuth()
   const [reservations, setReservations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editForm, setEditForm] = useState({ firstName: '', lastName: '', phone: '', password: '' })
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState(null)
+  const [editSuccess, setEditSuccess] = useState(false)
 
-  useEffect(() => {
-    if (!isAuthenticated) return
+  const loadReservations = useCallback(() => {
     getMyReservations()
       .then((res) => setReservations(res.data?.data || res.data || []))
       .catch(() => setError('Impossible de charger vos réservations.'))
       .finally(() => setLoading(false))
-  }, [isAuthenticated])
+  }, [])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    loadReservations()
+  }, [isAuthenticated, loadReservations])
+
+  function openEdit() {
+    setEditForm({ firstName: user?.firstName || '', lastName: user?.lastName || '', phone: user?.phone || '', password: '' })
+    setEditError(null)
+    setEditSuccess(false)
+    setEditOpen(true)
+  }
+
+  async function handleEditSave(e) {
+    e.preventDefault()
+    setEditSaving(true)
+    setEditError(null)
+    try {
+      const payload = {}
+      if (editForm.firstName !== user?.firstName) payload.firstName = editForm.firstName
+      if (editForm.lastName !== user?.lastName) payload.lastName = editForm.lastName
+      if (editForm.phone !== user?.phone) payload.phone = editForm.phone
+      if (editForm.password) payload.password = editForm.password
+      const res = await updateMe(payload)
+      updateUser(res.data.data)
+      setEditSuccess(true)
+      setTimeout(() => { setEditOpen(false); setEditSuccess(false) }, 1200)
+    } catch (err) {
+      setEditError(err.response?.data?.error || 'Erreur lors de la mise à jour.')
+    } finally {
+      setEditSaving(false)
+    }
+  }
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
 
-  const upcoming = reservations.find((r) => r.status === 'CONFIRMED')
-  const history = reservations.filter((r) => r.status !== 'CONFIRMED')
+  const now = new Date()
+  const upcoming = [...reservations]
+    .filter((r) => ['CONFIRMED', 'PENDING'].includes(r.status) && new Date(r.trip?.departureDate) >= now)
+    .sort((a, b) => new Date(a.trip?.departureDate) - new Date(b.trip?.departureDate))[0]
+  const history = reservations.filter((r) => r !== upcoming)
 
   const initials = user
     ? `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}`.toUpperCase()
@@ -81,8 +207,8 @@ export default function DashboardPage() {
   const thisMonthCount = reservations.filter((r) => {
     if (!r.createdAt) return false
     const d = new Date(r.createdAt)
-    const now = new Date()
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+    const m = new Date()
+    return d.getMonth() === m.getMonth() && d.getFullYear() === m.getFullYear()
   }).length
 
   return (
@@ -106,25 +232,95 @@ export default function DashboardPage() {
 
               <div className="bg-surface-container rounded-xl p-4 mb-5 text-center">
                 <p className="text-headline-md text-on-surface font-bold">{thisMonthCount}</p>
-                <p className="text-body-sm text-on-surface-variant">trajet{thisMonthCount !== 1 ? 's' : ''} ce mois</p>
+                <p className="text-body-sm text-on-surface-variant">
+                  {thisMonthCount === 1 ? 'trajet ce mois' : 'trajets ce mois'}
+                </p>
               </div>
 
-              <div className="space-y-2">
-                <Link
-                  to="/search"
-                  className="w-full flex items-center gap-2 px-4 py-3 rounded-lg bg-secondary-container text-on-secondary-container text-label-lg font-medium hover:bg-secondary-fixed-dim transition-colors"
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>search</span>
-                  Nouveau trajet
-                </Link>
-                <button
-                  onClick={logout}
-                  className="w-full flex items-center gap-2 px-4 py-3 rounded-lg border border-outline-variant text-on-surface-variant text-label-lg hover:bg-surface-container transition-colors"
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>logout</span>
-                  Se déconnecter
-                </button>
-              </div>
+              {editOpen ? (
+                <form onSubmit={handleEditSave} className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-label-sm text-on-surface-variant mb-1 block">Prénom</label>
+                      <input
+                        className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                        value={editForm.firstName}
+                        onChange={(e) => setEditForm((f) => ({ ...f, firstName: e.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-label-sm text-on-surface-variant mb-1 block">Nom</label>
+                      <input
+                        className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                        value={editForm.lastName}
+                        onChange={(e) => setEditForm((f) => ({ ...f, lastName: e.target.value }))}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-label-sm text-on-surface-variant mb-1 block">Téléphone</label>
+                    <input
+                      className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                      value={editForm.phone}
+                      onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-label-sm text-on-surface-variant mb-1 block">Nouveau mot de passe <span className="text-on-surface-variant/60">(optionnel)</span></label>
+                    <input
+                      type="password"
+                      className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="Laisser vide pour ne pas changer"
+                      value={editForm.password}
+                      onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))}
+                    />
+                  </div>
+                  {editError && <p className="text-label-sm text-error">{editError}</p>}
+                  {editSuccess && <p className="text-label-sm text-primary">Profil mis à jour !</p>}
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={editSaving}
+                      className="flex-1 bg-primary text-on-primary text-label-lg py-2 rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                    >
+                      {editSaving ? 'Enregistrement…' : 'Enregistrer'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditOpen(false)}
+                      className="px-4 py-2 rounded-lg border border-outline-variant text-on-surface-variant text-label-lg hover:bg-surface-container transition-colors"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="space-y-2">
+                  <Link
+                    to="/search"
+                    className="w-full flex items-center gap-2 px-4 py-3 rounded-lg bg-secondary-container text-on-secondary-container text-label-lg font-medium hover:bg-secondary-fixed-dim transition-colors"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>search</span>
+                    <span>Nouveau trajet</span>
+                  </Link>
+                  <button
+                    onClick={openEdit}
+                    className="w-full flex items-center gap-2 px-4 py-3 rounded-lg border border-outline-variant text-on-surface-variant text-label-lg hover:bg-surface-container transition-colors"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
+                    <span>Modifier le profil</span>
+                  </button>
+                  <button
+                    onClick={logout}
+                    className="w-full flex items-center gap-2 px-4 py-3 rounded-lg border border-outline-variant text-on-surface-variant text-label-lg hover:bg-surface-container transition-colors"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>logout</span>
+                    <span>Se déconnecter</span>
+                  </button>
+                </div>
+              )}
             </div>
           </aside>
 
@@ -149,7 +345,7 @@ export default function DashboardPage() {
               <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 shadow-card">
                 <h2 className="text-headline-sm text-on-surface mb-4 flex items-center gap-2">
                   <span className="material-symbols-outlined text-primary" style={{ fontSize: '22px' }}>flight_takeoff</span>
-                  Voyage à venir
+                  <span>Voyage à venir</span>
                 </h2>
                 {upcoming ? (
                   <div className="bg-primary-fixed/20 border border-primary-fixed rounded-xl p-4">
@@ -179,7 +375,7 @@ export default function DashboardPage() {
                           className="flex items-center gap-1 text-primary text-label-lg font-medium hover:underline"
                         >
                           <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>receipt</span>
-                          Voir le billet
+                          <span>Voir le billet</span>
                         </Link>
                       )}
                     </div>
@@ -204,7 +400,7 @@ export default function DashboardPage() {
               <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 shadow-card">
                 <h2 className="text-headline-sm text-on-surface mb-4 flex items-center gap-2">
                   <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '22px' }}>history</span>
-                  Historique
+                  <span>Historique</span>
                 </h2>
                 {history.length === 0 ? (
                   <p className="text-body-md text-on-surface-variant text-center py-6">
@@ -213,7 +409,7 @@ export default function DashboardPage() {
                 ) : (
                   <div>
                     {history.map((r) => (
-                      <ReservationRow key={r.id} reservation={r} />
+                      <ReservationRow key={r.id} reservation={r} onCancel={loadReservations} />
                     ))}
                   </div>
                 )}

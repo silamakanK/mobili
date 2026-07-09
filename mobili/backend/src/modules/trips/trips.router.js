@@ -10,6 +10,9 @@ const {
   updateTripHandler,
   cancelTripHandler,
   getPassengersHandler,
+  getTripSeatsHandler,
+  blockTripSeatHandler,
+  unblockTripSeatHandler,
 } = require('./trips.controller')
 
 const router = Router()
@@ -32,6 +35,9 @@ router.get(
   authorize('AGENT', 'ADMIN_COMPANY', 'SUPER_ADMIN'),
   getPassengersHandler
 )
+router.get('/:id/seats', ...adminOrSuper, getTripSeatsHandler)
+router.post('/:id/seats/:seatId/block', ...adminOrSuper, blockTripSeatHandler)
+router.delete('/:id/seats/:seatId/block', ...adminOrSuper, unblockTripSeatHandler)
 router.get('/:id', getByIdHandler)
 
 module.exports = router

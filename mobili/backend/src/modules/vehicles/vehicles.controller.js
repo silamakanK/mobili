@@ -16,8 +16,8 @@ const updateSchema = z.object({
 
 async function listHandler(req, res, next) {
   try {
-    const page = parseInt(req.query.page) || 1
-    const limit = parseInt(req.query.limit) || 20
+    const page = Number.parseInt(req.query.page) || 1
+    const limit = Number.parseInt(req.query.limit) || 20
     const result = await vehiclesService.listVehicles(req.user, { page, limit })
     res.json({ success: true, data: result })
   } catch (err) {

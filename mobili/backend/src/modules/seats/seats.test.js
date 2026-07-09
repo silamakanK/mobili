@@ -2,36 +2,79 @@ const request = require('supertest')
 const app = require('../../app')
 const prisma = require('../../config/prisma')
 const jwt = require('jsonwebtoken')
+const bcrypt = require('bcryptjs')
 
-function makeToken(role, companyId = null) {
-  return jwt.sign({ id: 'test-user-id', role, companyId }, process.env.JWT_SECRET || 'test')
+let companyId, vehicleId, seatId, adminCompanyId, otherAdminId, otherCompanyId
+
+function makeToken(role, cId = null) {
+  const id = cId && cId !== companyId ? otherAdminId : adminCompanyId
+  return jwt.sign({ id, role, companyId: cId }, process.env.JWT_SECRET || 'test')
 }
 
-let companyId, vehicleId, seatId
-
 beforeAll(async () => {
+  const ts = Date.now()
+  const hash = await bcrypt.hash('TestPass123', 10)
+
   const co = await prisma.company.create({
-    data: {
-      name: `SeatCo ${Date.now()}`,
-      contactEmail: `s${Date.now()}@test.ml`,
-      contactPhone: '+22300000004',
-    },
+    data: { name: `SeatCo ${ts}`, contactEmail: `s${ts}@test.ml`, contactPhone: '+22300000004' },
   })
   companyId = co.id
+
+  const otherCo = await prisma.company.create({
+    data: {
+      name: `OtherSeatCo ${ts}`,
+      contactEmail: `os${ts}@test.ml`,
+      contactPhone: '+22300000044',
+    },
+  })
+  otherCompanyId = otherCo.id
+
+  const [ac, oa] = await Promise.all([
+    prisma.user.create({
+      data: {
+        firstName: 'Test',
+        lastName: 'AdminSeat',
+        email: `as.${ts}@test.ml`,
+        phone: `+2230${ts.toString().slice(-7)}`,
+        passwordHash: hash,
+        role: 'ADMIN_COMPANY',
+        companyId,
+        isActive: true,
+      },
+    }),
+    prisma.user.create({
+      data: {
+        firstName: 'Other',
+        lastName: 'AdminSeat',
+        email: `oas.${ts}@test.ml`,
+        phone: `+2241${ts.toString().slice(-7)}`,
+        passwordHash: hash,
+        role: 'ADMIN_COMPANY',
+        companyId: otherCompanyId,
+        isActive: true,
+      },
+    }),
+  ])
+  adminCompanyId = ac.id
+  otherAdminId = oa.id
+
   const vehicle = await prisma.vehicle.create({
-    data: { registrationNumber: `BA-S-${Date.now()}`, type: 'BUS', totalSeats: 5, companyId },
+    data: { registrationNumber: `BA-S-${ts}`, type: 'BUS', totalSeats: 5, companyId },
   })
   vehicleId = vehicle.id
-  const seat = await prisma.seat.create({
-    data: { vehicleId, seatNumber: '01', type: 'STANDARD' },
-  })
+  const seat = await prisma.seat.create({ data: { vehicleId, seatNumber: '01', type: 'STANDARD' } })
   seatId = seat.id
 })
 
 afterAll(async () => {
   await prisma.seat.deleteMany({ where: { vehicleId } }).catch(() => {})
   await prisma.vehicle.delete({ where: { id: vehicleId } }).catch(() => {})
-  await prisma.company.delete({ where: { id: companyId } }).catch(() => {})
+  await prisma.user
+    .deleteMany({ where: { id: { in: [adminCompanyId, otherAdminId].filter(Boolean) } } })
+    .catch(() => {})
+  await prisma.company
+    .deleteMany({ where: { id: { in: [companyId, otherCompanyId].filter(Boolean) } } })
+    .catch(() => {})
 })
 
 describe('GET /api/seats', () => {

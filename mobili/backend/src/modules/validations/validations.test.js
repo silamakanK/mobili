@@ -65,7 +65,7 @@ beforeAll(async () => {
   await request(app)
     .post('/api/payments/initiate')
     .set('Authorization', `Bearer ${voyageurToken}`)
-    .send({ reservationId, method: 'MOOV_MONEY' })
+    .send({ reservationIds: [reservationId], method: 'ORANGE_MONEY' })
 
   await request(app)
     .post('/api/payments/webhook')

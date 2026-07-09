@@ -1,18 +1,20 @@
 const prisma = require('../../config/prisma')
 
 async function validateTicket({ qrCode, agentId }) {
-  const ticket = await prisma.ticket.findUnique({
-    where: { qrCode },
-    include: {
-      reservation: {
-        include: {
-          trip: { include: { route: { select: { origin: true, destination: true } } } },
-          seat: { select: { seatNumber: true } },
-          user: { select: { firstName: true, lastName: true, phone: true } },
-        },
+  const include = {
+    reservation: {
+      include: {
+        trip: { include: { route: { select: { origin: true, destination: true } } } },
+        seat: { select: { seatNumber: true } },
+        user: { select: { firstName: true, lastName: true, phone: true } },
       },
     },
-  })
+  }
+
+  // Cherche par qrCode d'abord, puis par ticketCode (saisie manuelle agent)
+  const ticket =
+    (await prisma.ticket.findUnique({ where: { qrCode }, include })) ??
+    (await prisma.ticket.findUnique({ where: { ticketCode: qrCode }, include }))
 
   if (!ticket) {
     return { status: 'NOT_FOUND', message: 'Billet introuvable.', ticket: null }

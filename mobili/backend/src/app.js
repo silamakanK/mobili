@@ -1,4 +1,5 @@
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') })
+require('dotenv').config({ path: require('node:path').join(__dirname, '../.env') })
+const Sentry = require('./config/sentry')
 const express = require('express')
 const helmet = require('helmet')
 const cors = require('cors')
@@ -36,6 +37,8 @@ app.use(
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   })
 )
+// Raw body requis pour la vérification de signature Stripe — doit précéder express.json()
+app.use('/api/payments/stripe-webhook', express.raw({ type: 'application/json' }))
 app.use(express.json())
 app.use(globalLimiter)
 
@@ -52,8 +55,11 @@ app.use('/api/vehicles', require('./modules/vehicles/vehicles.router'))
 app.use('/api/seats', require('./modules/seats/seats.router'))
 app.use('/api/users', require('./modules/users/users.router'))
 app.use('/api/stats', require('./modules/stats/stats.router'))
+app.use('/api/recurring-trips', require('./modules/recurring-trips/recurring-trips.router'))
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
+
+Sentry.setupExpressErrorHandler(app)
 
 app.use((err, _req, res, _next) => {
   const status = err.status || 500

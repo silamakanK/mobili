@@ -188,4 +188,49 @@ async function listManagers({ companyId, page = 1, limit = 20 } = {}) {
   return { managers, total, page, limit }
 }
 
-module.exports = { listUsers, createAgent, createManager, listManagers, updateUser, deleteUser }
+async function getMe(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, firstName: true, lastName: true, email: true, phone: true, role: true },
+  })
+  if (!user) {
+    const err = new Error('Utilisateur introuvable.')
+    err.status = 404
+    throw err
+  }
+  return user
+}
+
+async function updateMe(userId, data) {
+  if (data.phone) {
+    const existing = await prisma.user.findFirst({
+      where: { phone: data.phone, id: { not: userId } },
+    })
+    if (existing) {
+      const err = new Error('Ce numéro de téléphone est déjà utilisé.')
+      err.status = 409
+      throw err
+    }
+  }
+  const updateData = { ...data }
+  if (data.password) {
+    updateData.passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS)
+    delete updateData.password
+  }
+  return prisma.user.update({
+    where: { id: userId },
+    data: updateData,
+    select: { id: true, firstName: true, lastName: true, email: true, phone: true, role: true },
+  })
+}
+
+module.exports = {
+  listUsers,
+  createAgent,
+  createManager,
+  listManagers,
+  updateUser,
+  deleteUser,
+  getMe,
+  updateMe,
+}

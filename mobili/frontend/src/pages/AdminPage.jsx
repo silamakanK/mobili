@@ -2,10 +2,13 @@ import { useState, useEffect, useCallback } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getCompanyStats, getGlobalStats } from '../services/stats'
-import { listRoutes, createRoute, deleteRoute } from '../services/routes'
-import { listVehicles, createVehicle, deleteVehicle } from '../services/vehicles'
-import { listCompanyTrips, createTrip, cancelTrip, getTripPassengers } from '../services/trips-admin'
-import { listUsers, createAgent } from '../services/users'
+import { listRoutes, createRoute, updateRoute, deleteRoute } from '../services/routes'
+import { listVehicles, createVehicle, updateVehicle, deleteVehicle } from '../services/vehicles'
+import { listCompanyTrips, createTrip, updateTrip, cancelTrip, getTripPassengers } from '../services/trips-admin'
+import { listUsers, createAgent, updateUser } from '../services/users'
+import { listCompanyReservations } from '../services/reservations'
+import { listSeats, updateSeat, getTripSeats, blockTripSeat, unblockTripSeat, initVehicleSeats } from '../services/seats'
+import { listRecurringTrips, createRecurringTrip, generateTrips, deleteRecurringTrip, replaceVehicle } from '../services/recurring-trips'
 
 const ADMIN_ROLES = ['ADMIN_COMPANY', 'SUPER_ADMIN']
 
@@ -44,16 +47,18 @@ function ErrorMsg({ msg }) {
 function DashboardSection({ user, onNavigate }) {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10))
 
   useEffect(() => {
+    setLoading(true)
     const fetch = user.role === 'SUPER_ADMIN'
-      ? getGlobalStats()
-      : getCompanyStats(user.companyId)
+      ? getGlobalStats(selectedDate)
+      : getCompanyStats(user.companyId, selectedDate)
     fetch
       .then((res) => setStats(res.data?.data))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [user])
+  }, [user, selectedDate])
 
   const statCards = [
     {
@@ -107,9 +112,13 @@ function DashboardSection({ user, onNavigate }) {
         </div>
         <div className="flex items-center gap-2 bg-surface-container border border-outline-variant rounded-xl px-3 py-2">
           <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '16px' }}>calendar_today</span>
-          <span className="text-body-sm text-on-surface-variant">
-            {new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
-          </span>
+          <input
+            type="date"
+            value={selectedDate}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="text-body-sm text-on-surface-variant bg-transparent border-none outline-none cursor-pointer"
+          />
         </div>
       </div>
 
@@ -159,7 +168,7 @@ function DashboardSection({ user, onNavigate }) {
         <div className="px-5 py-4 border-b border-outline-variant flex items-center justify-between">
           <h2 className="text-headline-sm text-on-surface">Réservations Récentes</h2>
           <button
-            onClick={() => onNavigate('horaires')}
+            onClick={() => onNavigate('reservations')}
             className="text-primary text-label-lg hover:underline"
           >
             Voir tout
@@ -247,6 +256,9 @@ function LignesSection() {
   const [form, setForm] = useState({ origin: '', destination: '', distance: '', estimatedDuration: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState({ distance: '', estimatedDuration: '' })
+  const [editSaving, setEditSaving] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -286,6 +298,24 @@ function LignesSection() {
       load()
     } catch (err) {
       alert(err.response?.data?.error || 'Erreur.')
+    }
+  }
+
+  const startEdit = (r) => {
+    setEditingId(r.id)
+    setEditForm({ distance: r.distance, estimatedDuration: r.estimatedDuration })
+  }
+
+  const handleEditSave = async (id) => {
+    setEditSaving(true)
+    try {
+      await updateRoute(id, { distance: Number(editForm.distance), estimatedDuration: Number(editForm.estimatedDuration) })
+      setEditingId(null)
+      load()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Erreur.')
+    } finally {
+      setEditSaving(false)
     }
   }
 
@@ -382,19 +412,70 @@ function LignesSection() {
                   <td className="px-5 py-3 text-body-md text-on-surface font-medium">
                     {r.origin} → {r.destination}
                   </td>
-                  <td className="px-5 py-3 text-body-sm text-on-surface-variant">{r.distance} km</td>
-                  <td className="px-5 py-3 text-body-sm text-on-surface-variant">
-                    {Math.floor(r.estimatedDuration / 60)}h{String(r.estimatedDuration % 60).padStart(2, '0')}
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    <button
-                      onClick={() => handleDelete(r.id)}
-                      className="text-error hover:bg-error-container/30 p-1 rounded-lg transition"
-                      title="Désactiver"
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>delete</span>
-                    </button>
-                  </td>
+                  {editingId === r.id ? (
+                    <>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number" min={1}
+                          value={editForm.distance}
+                          onChange={(e) => setEditForm((f) => ({ ...f, distance: e.target.value }))}
+                          className="w-24 border border-outline-variant rounded-lg px-2 py-1 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <span className="ml-1 text-body-sm text-on-surface-variant">km</span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number" min={1}
+                          value={editForm.estimatedDuration}
+                          onChange={(e) => setEditForm((f) => ({ ...f, estimatedDuration: e.target.value }))}
+                          className="w-24 border border-outline-variant rounded-lg px-2 py-1 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <span className="ml-1 text-body-sm text-on-surface-variant">min</span>
+                      </td>
+                      <td className="px-3 py-2 text-right flex gap-2 justify-end">
+                        <button
+                          onClick={() => handleEditSave(r.id)}
+                          disabled={editSaving}
+                          className="text-primary hover:bg-primary/10 p-1 rounded-lg transition disabled:opacity-50"
+                          title="Enregistrer"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>check</span>
+                        </button>
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="text-on-surface-variant hover:bg-surface-container p-1 rounded-lg transition"
+                          title="Annuler"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>close</span>
+                        </button>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-5 py-3 text-body-sm text-on-surface-variant">{r.distance} km</td>
+                      <td className="px-5 py-3 text-body-sm text-on-surface-variant">
+                        {Math.floor(r.estimatedDuration / 60)}h{String(r.estimatedDuration % 60).padStart(2, '0')}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <div className="flex gap-1 justify-end">
+                          <button
+                            onClick={() => startEdit(r)}
+                            className="text-on-surface-variant hover:bg-surface-container p-1 rounded-lg transition"
+                            title="Modifier"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
+                          </button>
+                          <button
+                            onClick={() => handleDelete(r.id)}
+                            className="text-error hover:bg-error-container/30 p-1 rounded-lg transition"
+                            title="Désactiver"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>delete</span>
+                          </button>
+                        </div>
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -413,6 +494,9 @@ function VehiculesSection() {
   const [form, setForm] = useState({ registrationNumber: '', type: 'BUS', totalSeats: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState({ registrationNumber: '', type: 'BUS', totalSeats: '' })
+  const [editSaving, setEditSaving] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -451,6 +535,28 @@ function VehiculesSection() {
       load()
     } catch (err) {
       alert(err.response?.data?.error || 'Erreur.')
+    }
+  }
+
+  const startEdit = (v) => {
+    setEditingId(v.id)
+    setEditForm({ registrationNumber: v.registrationNumber, type: v.type, totalSeats: v.totalSeats })
+  }
+
+  const handleEditSave = async (id) => {
+    setEditSaving(true)
+    try {
+      await updateVehicle(id, {
+        registrationNumber: editForm.registrationNumber.trim().toUpperCase(),
+        type: editForm.type,
+        totalSeats: Number(editForm.totalSeats),
+      })
+      setEditingId(null)
+      load()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Erreur.')
+    } finally {
+      setEditSaving(false)
     }
   }
 
@@ -538,18 +644,80 @@ function VehiculesSection() {
             <tbody>
               {vehicles.map((v) => (
                 <tr key={v.id} className="border-b border-outline-variant last:border-0 hover:bg-surface-container transition-colors">
-                  <td className="px-5 py-3 text-body-md text-on-surface font-medium font-mono">{v.registrationNumber}</td>
-                  <td className="px-5 py-3 text-body-sm text-on-surface-variant">{vehicleTypeLabel[v.type] || v.type}</td>
-                  <td className="px-5 py-3 text-body-sm text-on-surface-variant">{v.totalSeats} places</td>
-                  <td className="px-5 py-3 text-right">
-                    <button
-                      onClick={() => handleDelete(v.id)}
-                      className="text-error hover:bg-error-container/30 p-1 rounded-lg transition"
-                      title="Désactiver"
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>delete</span>
-                    </button>
-                  </td>
+                  {editingId === v.id ? (
+                    <>
+                      <td className="px-3 py-2">
+                        <input
+                          value={editForm.registrationNumber}
+                          onChange={(e) => setEditForm((f) => ({ ...f, registrationNumber: e.target.value }))}
+                          className="w-36 border border-outline-variant rounded-lg px-2 py-1 text-body-sm bg-surface uppercase focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <select
+                          value={editForm.type}
+                          onChange={(e) => setEditForm((f) => ({ ...f, type: e.target.value }))}
+                          className="border border-outline-variant rounded-lg px-2 py-1 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                        >
+                          <option value="BUS">Bus</option>
+                          <option value="MINIBUS">Minibus</option>
+                          <option value="VAN">Van</option>
+                        </select>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number" min={1} max={100}
+                          value={editForm.totalSeats}
+                          onChange={(e) => setEditForm((f) => ({ ...f, totalSeats: e.target.value }))}
+                          className="w-20 border border-outline-variant rounded-lg px-2 py-1 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <span className="ml-1 text-body-sm text-on-surface-variant">places</span>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() => handleEditSave(v.id)}
+                            disabled={editSaving}
+                            className="text-primary hover:bg-primary/10 p-1 rounded-lg transition disabled:opacity-50"
+                            title="Enregistrer"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>check</span>
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="text-on-surface-variant hover:bg-surface-container p-1 rounded-lg transition"
+                            title="Annuler"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>close</span>
+                          </button>
+                        </div>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-5 py-3 text-body-md text-on-surface font-medium font-mono">{v.registrationNumber}</td>
+                      <td className="px-5 py-3 text-body-sm text-on-surface-variant">{vehicleTypeLabel[v.type] || v.type}</td>
+                      <td className="px-5 py-3 text-body-sm text-on-surface-variant">{v.totalSeats} places</td>
+                      <td className="px-5 py-3 text-right">
+                        <div className="flex gap-1 justify-end">
+                          <button
+                            onClick={() => startEdit(v)}
+                            className="text-on-surface-variant hover:bg-surface-container p-1 rounded-lg transition"
+                            title="Modifier"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
+                          </button>
+                          <button
+                            onClick={() => handleDelete(v.id)}
+                            className="text-error hover:bg-error-container/30 p-1 rounded-lg transition"
+                            title="Désactiver"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>delete</span>
+                          </button>
+                        </div>
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -573,24 +741,80 @@ function TrajetsSection() {
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [editingTrip, setEditingTrip] = useState(null)
+  const [editForm, setEditForm] = useState({ price: '', departureTime: '' })
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
+  const [replacingTrip, setReplacingTrip] = useState(null)
+  const [replaceVehicleId, setReplaceVehicleId] = useState('')
+  const [replaceSaving, setReplaceSaving] = useState(false)
+  const [replaceError, setReplaceError] = useState('')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const LIMIT = 20
+  const [filterStatus, setFilterStatus] = useState('')
+  const [filterOrigin, setFilterOrigin] = useState('')
+  const [filterDestination, setFilterDestination] = useState('')
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const [filterFrom, setFilterFrom] = useState(todayStr)
+  const [filterTo, setFilterTo] = useState('')
+  const [activePeriod, setActivePeriod] = useState('upcoming')
 
-  const load = useCallback(() => {
+  const load = useCallback((p = 1, opts = {}) => {
     setLoading(true)
+    const params = {
+      page: p,
+      limit: LIMIT,
+      status: (opts.status ?? filterStatus) || undefined,
+      origin: (opts.origin ?? filterOrigin) || undefined,
+      destination: (opts.destination ?? filterDestination) || undefined,
+      from: (opts.from ?? filterFrom) || undefined,
+      to: (opts.to ?? filterTo) || undefined,
+    }
     Promise.all([
-      listCompanyTrips({ limit: 50 }),
+      listCompanyTrips(params),
       listRoutes({ limit: 100 }),
       listVehicles({ limit: 100 }),
     ])
       .then(([tripsRes, routesRes, vehiclesRes]) => {
         setTrips(tripsRes.data?.data?.trips || [])
+        setTotal(tripsRes.data?.data?.total || 0)
         setRoutes(routesRes.data?.data?.routes || [])
         setVehicles(vehiclesRes.data?.data?.vehicles || [])
       })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [])
+  }, [filterStatus, filterOrigin, filterDestination, filterFrom, filterTo])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(1) }, [load])
+
+  const applyPeriod = (period) => {
+    setActivePeriod(period)
+    const now = new Date()
+    if (period === 'upcoming') {
+      const from = now.toISOString().slice(0, 10)
+      setFilterFrom(from); setFilterTo(''); load(1, { from, to: '' }); return
+    }
+    if (period === 'all') { setFilterFrom(''); setFilterTo(''); load(1, { from: '', to: '' }); return }
+    if (period === 'week') {
+      const start = new Date(now); start.setDate(now.getDate() - now.getDay() + 1)
+      const end = new Date(start); end.setDate(start.getDate() + 6)
+      const from = start.toISOString().slice(0, 10); const to = end.toISOString().slice(0, 10)
+      setFilterFrom(from); setFilterTo(to); load(1, { from, to }); return
+    }
+    if (period === 'month') {
+      const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+      const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10)
+      setFilterFrom(from); setFilterTo(to); load(1, { from, to }); return
+    }
+  }
+
+  const applyFilters = () => { setPage(1); load(1) }
+  const resetFilters = () => {
+    const from = new Date().toISOString().slice(0, 10)
+    setFilterStatus(''); setFilterOrigin(''); setFilterDestination(''); setFilterFrom(from); setFilterTo(''); setActivePeriod('upcoming')
+    load(1, { status: '', origin: '', destination: '', from, to: '' })
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -618,9 +842,60 @@ function TrajetsSection() {
     if (!window.confirm('Annuler ce trajet ? Les passagers seront notifiés.')) return
     try {
       await cancelTrip(id)
-      load()
+      load(page)
     } catch (err) {
       alert(err.response?.data?.error || 'Erreur.')
+    }
+  }
+
+  const handleEditOpen = (t) => {
+    setEditingTrip(t)
+    setEditForm({
+      price: String(t.price),
+      departureTime: t.departureTime,
+      departureDate: t.departureDate ? new Date(t.departureDate).toISOString().slice(0, 10) : '',
+    })
+    setEditError('')
+  }
+
+  const handleReplaceOpen = (t) => {
+    setReplacingTrip(t)
+    setReplaceVehicleId('')
+    setReplaceError('')
+  }
+
+  const handleReplaceSubmit = async (e) => {
+    e.preventDefault()
+    if (!replaceVehicleId) return
+    setReplaceError('')
+    setReplaceSaving(true)
+    try {
+      await replaceVehicle(replacingTrip.id, replaceVehicleId)
+      setReplacingTrip(null)
+      load(page)
+    } catch (err) {
+      setReplaceError(err.response?.data?.error || 'Erreur lors du remplacement.')
+    } finally {
+      setReplaceSaving(false)
+    }
+  }
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault()
+    setEditError('')
+    setEditSaving(true)
+    try {
+      await updateTrip(editingTrip.id, {
+        price: Number(editForm.price),
+        departureTime: editForm.departureTime,
+        departureDate: editForm.departureDate,
+      })
+      setEditingTrip(null)
+      load(page)
+    } catch (err) {
+      setEditError(err.response?.data?.error || 'Erreur lors de la mise à jour.')
+    } finally {
+      setEditSaving(false)
     }
   }
 
@@ -635,6 +910,165 @@ function TrajetsSection() {
     <>
       {selectedTrip && (
         <PassengersModal trip={selectedTrip} onClose={() => setSelectedTrip(null)} />
+      )}
+
+      {replacingTrip && (() => {
+        const confirmed = replacingTrip.reservations?.length || 0
+        const selectedVehicle = vehicles.find((v) => v.id === replaceVehicleId)
+        const seatDiff = selectedVehicle ? selectedVehicle.totalSeats - (replacingTrip.vehicle?.totalSeats ?? 0) : 0
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-xl w-full max-w-md">
+              <div className="px-5 py-4 border-b border-outline-variant flex items-center justify-between">
+                <div>
+                  <h2 className="text-headline-sm text-on-surface">Remplacer le véhicule</h2>
+                  <p className="text-body-sm text-on-surface-variant mt-0.5">
+                    {replacingTrip.route?.origin} → {replacingTrip.route?.destination} · {new Date(replacingTrip.departureDate).toLocaleDateString('fr-FR')}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setReplacingTrip(null)}
+                  className="p-1 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>close</span>
+                </button>
+              </div>
+              <form onSubmit={handleReplaceSubmit} className="p-5 space-y-4">
+                <div className="flex items-start gap-3 p-3 rounded-xl bg-tertiary/10 border border-tertiary/20">
+                  <span className="material-symbols-outlined text-tertiary mt-0.5" style={{ fontSize: '20px' }}>warning</span>
+                  <div className="text-body-sm text-on-surface-variant">
+                    <p className="font-medium text-on-surface">Véhicule actuel : {replacingTrip.vehicle?.registrationNumber ?? '—'}</p>
+                    <p>{replacingTrip.vehicle?.type} · {replacingTrip.vehicle?.totalSeats ?? '?'} places · <span className="font-medium">{confirmed} réservation(s) en cours</span></p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-label-lg text-on-surface-variant block mb-1">Véhicule de remplacement</label>
+                  <select
+                    required
+                    value={replaceVehicleId}
+                    onChange={(e) => setReplaceVehicleId(e.target.value)}
+                    className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="">— Choisir un véhicule —</option>
+                    {vehicles
+                      .filter((v) => v.id !== replacingTrip.vehicleId && v.isActive !== false)
+                      .map((v) => (
+                        <option key={v.id} value={v.id} disabled={v.totalSeats < confirmed}>
+                          {v.registrationNumber} · {v.type} · {v.totalSeats} places{v.totalSeats < confirmed ? ' (insuffisant)' : ''}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                {selectedVehicle && (
+                  <div className={`flex items-start gap-3 p-3 rounded-xl border ${seatDiff >= 0 ? 'bg-primary/5 border-primary/20' : 'bg-error-container/30 border-error/20'}`}>
+                    <span className={`material-symbols-outlined mt-0.5 ${seatDiff >= 0 ? 'text-primary' : 'text-error'}`} style={{ fontSize: '20px' }}>
+                      {seatDiff >= 0 ? 'check_circle' : 'error'}
+                    </span>
+                    <div className="text-body-sm text-on-surface-variant">
+                      <p>{selectedVehicle.totalSeats} places disponibles — {confirmed} réservée(s) = <span className="font-medium text-on-surface">{selectedVehicle.totalSeats - confirmed} places libres</span></p>
+                      {seatDiff !== 0 && (
+                        <p className="mt-0.5">
+                          {seatDiff > 0 ? `+${seatDiff} places supplémentaires` : `${seatDiff} places en moins`} par rapport au véhicule actuel
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {replaceError && <ErrorMsg msg={replaceError} />}
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={replaceSaving || !replaceVehicleId}
+                    className="bg-tertiary text-on-tertiary px-5 py-2 rounded-xl text-label-lg hover:opacity-90 disabled:opacity-50 transition"
+                  >
+                    {replaceSaving ? 'Remplacement…' : 'Confirmer le remplacement'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReplacingTrip(null)}
+                    className="text-on-surface-variant text-label-lg hover:underline"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )
+      })()}
+
+      {editingTrip && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-xl w-full max-w-md">
+            <div className="px-5 py-4 border-b border-outline-variant flex items-center justify-between">
+              <div>
+                <h2 className="text-headline-sm text-on-surface">Modifier le trajet</h2>
+                <p className="text-body-sm text-on-surface-variant mt-0.5">
+                  {editingTrip.route?.origin} → {editingTrip.route?.destination} · {new Date(editingTrip.departureDate).toLocaleDateString('fr-FR')}
+                </p>
+              </div>
+              <button
+                onClick={() => setEditingTrip(null)}
+                className="p-1 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>close</span>
+              </button>
+            </div>
+            <form onSubmit={handleEditSubmit} className="p-5 space-y-4">
+              <div>
+                <label className="text-label-lg text-on-surface-variant block mb-1">Prix (FCFA)</label>
+                <input
+                  required
+                  type="number"
+                  min={100}
+                  value={editForm.price}
+                  onChange={(e) => setEditForm((f) => ({ ...f, price: e.target.value }))}
+                  className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="text-label-lg text-on-surface-variant block mb-1">Date de départ</label>
+                <input
+                  required
+                  type="date"
+                  value={editForm.departureDate}
+                  onChange={(e) => setEditForm((f) => ({ ...f, departureDate: e.target.value }))}
+                  className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="text-label-lg text-on-surface-variant block mb-1">Heure de départ</label>
+                <input
+                  required
+                  type="time"
+                  value={editForm.departureTime}
+                  onChange={(e) => setEditForm((f) => ({ ...f, departureTime: e.target.value }))}
+                  className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              {editError && <ErrorMsg msg={editError} />}
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  disabled={editSaving}
+                  className="bg-primary text-on-primary px-5 py-2 rounded-xl text-label-lg hover:opacity-90 disabled:opacity-50 transition"
+                >
+                  {editSaving ? 'Enregistrement…' : 'Enregistrer'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingTrip(null)}
+                  className="text-on-surface-variant text-label-lg hover:underline"
+                >
+                  Annuler
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       <div className="flex items-center justify-between mb-6">
@@ -727,9 +1161,95 @@ function TrajetsSection() {
         </form>
       )}
 
+      {/* ── Filtres ─────────────────────────────────────────────────── */}
+      <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 mb-4">
+        <div className="flex flex-wrap gap-3 items-end">
+          <div>
+            <label className="text-label-sm text-on-surface-variant block mb-1">Origine</label>
+            <select
+              value={filterOrigin}
+              onChange={(e) => setFilterOrigin(e.target.value)}
+              className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">Toutes</option>
+              {[...new Set(routes.map((r) => r.origin))].sort().map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-label-sm text-on-surface-variant block mb-1">Destination</label>
+            <select
+              value={filterDestination}
+              onChange={(e) => setFilterDestination(e.target.value)}
+              className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">Toutes</option>
+              {[...new Set(routes.map((r) => r.destination))].sort().map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-label-sm text-on-surface-variant block mb-1">Statut</label>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">Tous</option>
+              <option value="SCHEDULED">Prévu</option>
+              <option value="COMPLETED">Terminé</option>
+              <option value="CANCELLED">Annulé</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-label-sm text-on-surface-variant block mb-1">Période</label>
+            <div className="flex gap-1">
+              {[['upcoming', 'À venir'], ['all', 'Tout'], ['week', 'Semaine'], ['month', 'Mois']].map(([k, l]) => (
+                <button
+                  key={k}
+                  onClick={() => applyPeriod(k)}
+                  className={`px-3 py-1.5 rounded-lg text-label-sm border transition ${activePeriod === k ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container'}`}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+          {(activePeriod === 'all' || activePeriod === 'upcoming') && (
+            <>
+              <div>
+                <label className="text-label-sm text-on-surface-variant block mb-1">Du</label>
+                <input type="date" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)}
+                  className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary" />
+              </div>
+              {activePeriod === 'all' && (
+                <div>
+                  <label className="text-label-sm text-on-surface-variant block mb-1">Au</label>
+                  <input type="date" value={filterTo} onChange={(e) => setFilterTo(e.target.value)}
+                    className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+              )}
+            </>
+          )}
+          <div className="flex gap-2 ml-auto">
+            <button onClick={applyFilters} className="bg-primary text-on-primary px-4 py-1.5 rounded-lg text-label-sm hover:opacity-90 transition">
+              Filtrer
+            </button>
+            <button onClick={resetFilters} className="border border-outline-variant text-on-surface-variant px-4 py-1.5 rounded-lg text-label-sm hover:bg-surface-container transition">
+              Réinitialiser
+            </button>
+          </div>
+        </div>
+        {total > 0 && (
+          <p className="text-body-sm text-on-surface-variant mt-2">{total} trajet{total !== 1 ? 's' : ''} trouvé{total !== 1 ? 's' : ''}</p>
+        )}
+      </div>
+
       <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card overflow-hidden">
         {loading ? <Spinner /> : trips.length === 0 ? (
-          <EmptyState icon="schedule" text="Aucun trajet planifié" />
+          <EmptyState icon="schedule" text="Aucun trajet trouvé" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -778,6 +1298,24 @@ function TrajetsSection() {
                           </button>
                           {t.status === 'SCHEDULED' && (
                             <button
+                              onClick={() => handleReplaceOpen(t)}
+                              className="text-tertiary hover:bg-tertiary/10 p-1 rounded-lg transition"
+                              title="Remplacer le véhicule (panne)"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>directions_bus</span>
+                            </button>
+                          )}
+                          {t.status === 'SCHEDULED' && (
+                            <button
+                              onClick={() => handleEditOpen(t)}
+                              className="text-on-surface-variant hover:bg-surface-container p-1 rounded-lg transition"
+                              title="Modifier prix / heure"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
+                            </button>
+                          )}
+                          {t.status === 'SCHEDULED' && (
+                            <button
                               onClick={() => handleCancel(t.id)}
                               className="text-error hover:bg-error-container/30 p-1 rounded-lg transition"
                               title="Annuler le trajet"
@@ -795,6 +1333,33 @@ function TrajetsSection() {
           </div>
         )}
       </div>
+
+      {/* ── Pagination ───────────────────────────────────────────────── */}
+      {total > LIMIT && (
+        <div className="flex items-center justify-between mt-4">
+          <p className="text-body-sm text-on-surface-variant">
+            Page {page} / {Math.ceil(total / LIMIT)}
+          </p>
+          <div className="flex gap-2">
+            <button
+              disabled={page <= 1 || loading}
+              onClick={() => { const p = page - 1; setPage(p); load(p) }}
+              className="flex items-center gap-1 border border-outline-variant px-3 py-1.5 rounded-lg text-label-sm text-on-surface-variant hover:bg-surface-container disabled:opacity-40 transition"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>chevron_left</span>
+              Précédent
+            </button>
+            <button
+              disabled={page >= Math.ceil(total / LIMIT) || loading}
+              onClick={() => { const p = page + 1; setPage(p); load(p) }}
+              className="flex items-center gap-1 border border-outline-variant px-3 py-1.5 rounded-lg text-label-sm text-on-surface-variant hover:bg-surface-container disabled:opacity-40 transition"
+            >
+              Suivant
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>chevron_right</span>
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }
@@ -820,6 +1385,15 @@ function AgentsSection() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const handleToggleActive = async (agent) => {
+    try {
+      await updateUser(agent.id, { isActive: !agent.isActive })
+      load()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Erreur.')
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -935,6 +1509,7 @@ function AgentsSection() {
                 <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Email</th>
                 <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Téléphone</th>
                 <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Statut</th>
+                <th className="px-5 py-3" />
               </tr>
             </thead>
             <tbody>
@@ -949,6 +1524,17 @@ function AgentsSection() {
                     <span className={`text-label-md px-2 py-0.5 rounded-full ${a.isActive ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container text-on-surface-variant'}`}>
                       {a.isActive ? 'Actif' : 'Inactif'}
                     </span>
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button
+                      onClick={() => handleToggleActive(a)}
+                      className={`p-1 rounded-lg transition ${a.isActive ? 'text-error hover:bg-error-container/30' : 'text-secondary hover:bg-secondary-container/30'}`}
+                      title={a.isActive ? 'Désactiver' : 'Réactiver'}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
+                        {a.isActive ? 'person_off' : 'person'}
+                      </span>
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -1011,7 +1597,7 @@ function PassengersModal({ trip, onClose }) {
                   {data.passengers.map((p) => (
                     <tr key={p.reservationCode} className="border-b border-outline-variant last:border-0 hover:bg-surface-container transition-colors">
                       <td className="px-5 py-3">
-                        <span className={`text-label-md px-2 py-0.5 rounded-full ${p.seatType === 'VIP' ? 'bg-tertiary-container text-on-tertiary-container' : 'bg-surface-container text-on-surface-variant'}`}>
+                        <span className="text-label-md px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant">
                           {p.seat}
                         </span>
                       </td>
@@ -1042,20 +1628,403 @@ function PassengersModal({ trip, onClose }) {
   )
 }
 
+// ── Places ─────────────────────────────────────────────────────────────────────
+function AdminSeatButton({ seat, updating, onToggle }) {
+  const isReserved = seat.isReserved
+  const isTripBlocked = seat.isTripBlocked
+  const isBroken = !seat.isAvailable && !isReserved && !isTripBlocked
+  const canToggle = !isReserved && !isBroken
+  const isUpdating = updating === seat.id
+
+  let className, title
+  if (isReserved) {
+    className = 'bg-error-container/40 text-on-error-container cursor-not-allowed opacity-60'
+    title = `Siège ${seat.seatNumber} — Réservé via l'application`
+  } else if (isTripBlocked) {
+    className = 'bg-secondary-container/60 text-on-secondary-container border border-secondary/40 hover:opacity-80 cursor-pointer'
+    title = `Siège ${seat.seatNumber} — Occupé (physique) — clic pour libérer`
+  } else if (isBroken) {
+    className = 'bg-error-container/20 text-error/40 cursor-not-allowed opacity-50'
+    title = `Siège ${seat.seatNumber} — Hors service`
+  } else {
+    className = 'bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high cursor-pointer'
+    title = `Siège ${seat.seatNumber} — Libre — clic pour marquer comme occupé`
+  }
+
+  return (
+    <button
+      onClick={() => canToggle && onToggle(seat)}
+      disabled={isUpdating || !canToggle}
+      title={title}
+      className={`w-11 h-11 rounded-lg text-label-md font-medium transition-colors relative ${className} ${isUpdating ? 'opacity-40' : ''}`}
+    >
+      {isReserved ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>person</span>
+        </span>
+      ) : isTripBlocked ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>block</span>
+        </span>
+      ) : (
+        seat.seatNumber
+      )}
+    </button>
+  )
+}
+
+function BusSeatMap({ seats, updating, onToggle }) {
+  const rows = []
+  for (let i = 0; i < seats.length; i += 4) rows.push(seats.slice(i, i + 4))
+
+  return (
+    <div className="max-w-[320px] mx-auto bg-surface-container-lowest border-2 border-outline-variant rounded-t-[3rem] rounded-b-xl pt-8 pb-4 px-6">
+      <div className="flex justify-end mb-6">
+        <div className="w-11 h-11 rounded-lg bg-surface-container border border-outline-variant flex items-center justify-center">
+          <span className="material-symbols-outlined text-outline" style={{ fontSize: '18px' }}>steering</span>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {rows.map((row, ri) => (
+          <div key={ri} className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr 40px 1fr 1fr' }}>
+            {row.slice(0, 2).map((seat, ci) => (
+              <AdminSeatButton key={seat?.id ?? `${ri}-L-${ci}`} seat={seat} updating={updating} onToggle={onToggle} />
+            ))}
+            <div />
+            {(row.length > 2 ? row.slice(2, 4) : []).map((seat, ci) => (
+              <AdminSeatButton key={seat?.id ?? `${ri}-R-${ci}`} seat={seat} updating={updating} onToggle={onToggle} />
+            ))}
+            {row.length <= 2 && [0, 1].map((ci) => <div key={`empty-${ci}`} />)}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PlacesSection() {
+  const [trips, setTrips] = useState([])
+  const [selectedTripId, setSelectedTripId] = useState('')
+  const [seats, setSeats] = useState([])
+  const [loadingTrips, setLoadingTrips] = useState(true)
+  const [loadingSeats, setLoadingSeats] = useState(false)
+  const [updating, setUpdating] = useState(null)
+  const [error, setError] = useState('')
+  const [initializingSeats, setInitializingSeats] = useState(false)
+
+  useEffect(() => {
+    listCompanyTrips({ limit: 200, status: 'SCHEDULED' })
+      .then((res) => {
+        const t = res.data?.data?.trips || []
+        setTrips(t)
+        if (t.length > 0) setSelectedTripId(t[0].id)
+      })
+      .catch(() => {})
+      .finally(() => setLoadingTrips(false))
+  }, [])
+
+  const loadSeats = useCallback((tripId) => {
+    if (!tripId) return
+    setLoadingSeats(true)
+    setSeats([])
+    setError('')
+    getTripSeats(tripId)
+      .then((res) => setSeats(res.data?.data || []))
+      .catch((err) => setError(err.response?.data?.error || `Erreur chargement sièges (${err.response?.status ?? 'réseau'})`))
+      .finally(() => setLoadingSeats(false))
+  }, [])
+
+  useEffect(() => { loadSeats(selectedTripId) }, [selectedTripId, loadSeats])
+
+  const handleInitSeats = async () => {
+    if (!selectedTrip?.vehicle?.id) return
+    setInitializingSeats(true)
+    setError('')
+    try {
+      await initVehicleSeats(selectedTrip.vehicle.id)
+    } catch (err) {
+      // Si 409 (déjà initialisé), on recharge quand même les sièges
+      if (err.response?.status !== 409) {
+        setError(err.response?.data?.error || "Erreur lors de l'initialisation.")
+        setInitializingSeats(false)
+        return
+      }
+    }
+    loadSeats(selectedTripId)
+    setInitializingSeats(false)
+  }
+
+  const handleToggle = async (seat) => {
+    if (seat.isReserved) return
+    if (!seat.isAvailable && !seat.isTripBlocked) return
+    setUpdating(seat.id)
+    setError('')
+    try {
+      if (seat.isTripBlocked) {
+        await unblockTripSeat(selectedTripId, seat.id)
+      } else {
+        await blockTripSeat(selectedTripId, seat.id)
+      }
+      loadSeats(selectedTripId)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Erreur.')
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  const selectedTrip = trips.find((t) => t.id === selectedTripId)
+  const availableCount = seats.filter((s) => s.isAvailable && !s.isReserved && !s.isTripBlocked).length
+  const reservedCount = seats.filter((s) => s.isReserved).length
+  const blockedCount = seats.filter((s) => s.isTripBlocked).length
+
+  return (
+    <>
+      <div className="mb-6">
+        <h1 className="text-headline-md text-on-surface">Places</h1>
+        <p className="text-body-sm text-on-surface-variant mt-1">Gérez la disponibilité des sièges par trajet.</p>
+      </div>
+
+      <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 mb-6">
+        <label className="text-label-lg text-on-surface-variant block mb-2">Sélectionner un trajet</label>
+        {loadingTrips ? (
+          <div className="h-10 bg-surface-container rounded-lg animate-pulse w-64" />
+        ) : (
+          <select
+            value={selectedTripId}
+            onChange={(e) => { setError(''); setSelectedTripId(e.target.value) }}
+            className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            {trips.length === 0 && <option value="">Aucun trajet planifié</option>}
+            {trips.map((t) => (
+              <option key={t.id} value={t.id}>
+                {new Date(t.departureDate).toLocaleDateString('fr-FR')} · {t.departureTime?.slice(0, 5)} · {t.route?.origin} → {t.route?.destination}
+              </option>
+            ))}
+          </select>
+        )}
+        {selectedTrip && !loadingSeats && seats.length > 0 && (
+          <div className="flex flex-wrap gap-4 mt-3 text-body-sm">
+            <span className="text-primary font-medium">{availableCount} libre{availableCount !== 1 ? 's' : ''}</span>
+            <span className="text-error font-medium">{reservedCount} réservé{reservedCount !== 1 ? 's' : ''} (app)</span>
+            {blockedCount > 0 && <span className="text-on-surface-variant font-medium">{blockedCount} occupé{blockedCount !== 1 ? 's' : ''} (physique)</span>}
+          </div>
+        )}
+      </div>
+
+      {selectedTripId && (
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5">
+          <h2 className="text-headline-sm text-on-surface mb-4">Plan des sièges</h2>
+
+          {loadingSeats ? (
+            <Spinner />
+          ) : seats.length === 0 ? (
+            <div className="flex flex-col items-center gap-4 py-10">
+              <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: '40px' }}>airline_seat_recline_extra</span>
+              <p className="text-body-md text-on-surface-variant">{error ? error : 'Aucun siège configuré pour ce véhicule'}</p>
+              {selectedTrip?.vehicle?.totalSeats > 0 && (
+                <button
+                  onClick={handleInitSeats}
+                  disabled={initializingSeats}
+                  className="flex items-center gap-2 bg-primary text-on-primary px-5 py-2 rounded-xl text-label-lg hover:opacity-90 disabled:opacity-50 transition"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>auto_fix_high</span>
+                  {initializingSeats ? 'Création…' : `Créer les ${selectedTrip.vehicle.totalSeats} sièges automatiquement`}
+                </button>
+              )}
+              {error && <ErrorMsg msg={error} />}
+            </div>
+          ) : (
+            <>
+              <BusSeatMap seats={seats} updating={updating} onToggle={handleToggle} />
+              <div className="flex items-center justify-center gap-6 mt-6">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-surface-container border border-outline-variant" />
+                  <span className="text-body-sm text-on-surface-variant">Libre</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-error-container/40 opacity-60" />
+                  <span className="text-body-sm text-on-surface-variant">Réservé (app)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-secondary-container/60 border border-secondary/40" />
+                  <span className="text-body-sm text-on-surface-variant">Occupé (physique)</span>
+                </div>
+              </div>
+              <p className="text-body-sm text-on-surface-variant mt-3 text-center">
+                Cliquez sur un siège <strong>libre</strong> pour le marquer comme occupé, ou sur un siège <strong>occupé (physique)</strong> pour le libérer.
+              </p>
+              {error && <div className="mt-4"><ErrorMsg msg={error} /></div>}
+            </>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── Réservations ───────────────────────────────────────────────────────────────
+function ReservationsSection() {
+  const [reservations, setReservations] = useState([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const limit = 20
+
+  const load = useCallback(() => {
+    setLoading(true)
+    listCompanyReservations({ page, limit, ...(statusFilter ? { status: statusFilter } : {}) })
+      .then((res) => {
+        const data = res.data?.data
+        setReservations(data?.reservations || [])
+        setTotal(data?.total || 0)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [page, statusFilter])
+
+  useEffect(() => { load() }, [load])
+
+  const statusTabs = [
+    { key: '', label: 'Toutes' },
+    { key: 'CONFIRMED', label: 'Confirmées' },
+    { key: 'PENDING', label: 'En attente' },
+    { key: 'CANCELLED', label: 'Annulées' },
+  ]
+
+  const totalPages = Math.ceil(total / limit)
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-headline-md text-on-surface">Réservations</h1>
+          <p className="text-body-sm text-on-surface-variant mt-1">
+            {total} réservation{total !== 1 ? 's' : ''} au total
+          </p>
+        </div>
+      </div>
+
+      <div className="flex gap-2 mb-6 flex-wrap">
+        {statusTabs.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => { setStatusFilter(key); setPage(1) }}
+            className={`px-4 py-1.5 rounded-full text-label-lg transition ${
+              statusFilter === key
+                ? 'bg-primary text-on-primary'
+                : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card overflow-hidden">
+        {loading ? <Spinner /> : reservations.length === 0 ? (
+          <EmptyState icon="confirmation_number" text="Aucune réservation trouvée" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-outline-variant">
+                  <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Passager</th>
+                  <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Trajet</th>
+                  <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Date</th>
+                  <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Siège</th>
+                  <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Montant</th>
+                  <th className="text-left px-5 py-3 text-label-lg text-on-surface-variant">Statut</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reservations.map((r) => (
+                  <tr key={r.id} className="border-b border-outline-variant last:border-0 hover:bg-surface-container transition-colors">
+                    <td className="px-5 py-3">
+                      <p className="text-body-md text-on-surface font-medium">
+                        {r.user ? `${r.user.firstName} ${r.user.lastName}` : '—'}
+                      </p>
+                      <p className="text-body-sm text-on-surface-variant font-mono">{r.reservationCode}</p>
+                    </td>
+                    <td className="px-5 py-3">
+                      <p className="text-body-sm text-on-surface">
+                        {r.trip?.route?.origin || '—'} → {r.trip?.route?.destination || '—'}
+                      </p>
+                    </td>
+                    <td className="px-5 py-3 text-body-sm text-on-surface-variant whitespace-nowrap">
+                      {r.trip?.departureDate ? new Date(r.trip.departureDate).toLocaleDateString('fr-FR') : '—'}
+                      {r.trip?.departureTime ? ` à ${r.trip.departureTime}` : ''}
+                    </td>
+                    <td className="px-5 py-3">
+                      {r.seat ? (
+                        <span className={`text-label-md px-2 py-0.5 rounded-full ${r.seat.type === 'VIP' ? 'bg-tertiary-container text-on-tertiary-container' : 'bg-surface-container text-on-surface-variant'}`}>
+                          {r.seat.seatNumber}
+                        </span>
+                      ) : <span className="text-on-surface-variant">—</span>}
+                    </td>
+                    <td className="px-5 py-3 text-body-sm text-on-surface-variant whitespace-nowrap">
+                      {(r.totalAmount || 0).toLocaleString('fr-FR')} FCFA
+                    </td>
+                    <td className="px-5 py-3">
+                      <span className={`text-label-md px-2 py-0.5 rounded-full ${STATUS_CONFIG[r.status]?.className || STATUS_CONFIG.PENDING.className}`}>
+                        {STATUS_CONFIG[r.status]?.label || r.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-4">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1}
+            className="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant disabled:opacity-40 hover:bg-surface-container-high transition text-label-lg"
+          >
+            ‹ Préc.
+          </button>
+          <span className="text-body-sm text-on-surface-variant">Page {page} / {totalPages}</span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page === totalPages}
+            className="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant disabled:opacity-40 hover:bg-surface-container-high transition text-label-lg"
+          >
+            Suiv. ›
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
 // ── Rapports ───────────────────────────────────────────────────────────────────
+const PERIODS = [
+  { key: 'daily', label: "Aujourd'hui" },
+  { key: 'monthly', label: 'Ce mois' },
+  { key: 'annual', label: 'Cette année' },
+]
+
 function RapportsSection({ user }) {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [period, setPeriod] = useState('monthly')
 
   useEffect(() => {
-    const fetch = user.role === 'SUPER_ADMIN'
-      ? getGlobalStats()
-      : getCompanyStats(user.companyId)
-    fetch
+    setLoading(true)
+    const params = { period }
+    const req = user.role === 'SUPER_ADMIN'
+      ? getGlobalStats(params)
+      : getCompanyStats(user.companyId, params)
+    req
       .then((res) => setStats(res.data?.data))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [user])
+  }, [user, period])
 
   const kpis = [
     { label: 'Total réservations', value: stats?.totalReservations, icon: 'confirmation_number', color: 'text-primary' },
@@ -1066,14 +2035,49 @@ function RapportsSection({ user }) {
     { label: 'Véhicules', value: stats?.vehicles, icon: 'airport_shuttle', color: 'text-tertiary' },
   ]
 
+  const rates = [
+    { label: 'Succès paiement', value: stats?.paymentSuccessRate != null ? `${stats.paymentSuccessRate}%` : null, icon: 'payments', color: 'text-secondary' },
+    { label: "Taux d'annulation", value: stats?.cancellationRate != null ? `${stats.cancellationRate}%` : null, icon: 'cancel', color: 'text-error' },
+    { label: 'Taux de remplissage', value: stats?.fillRate != null ? `${stats.fillRate}%` : null, icon: 'event_seat', color: 'text-tertiary' },
+  ]
+
+  const revenueLabel = period === 'daily' ? "Paiements confirmés aujourd'hui" : period === 'monthly' ? 'Paiements confirmés ce mois' : 'Paiements confirmés cette année'
+
   return (
     <>
-      <div className="mb-6">
-        <h1 className="text-headline-md text-on-surface">Rapports</h1>
-        <p className="text-body-sm text-on-surface-variant mt-1">Indicateurs de performance de votre compagnie.</p>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-4">
+        <div>
+          <h1 className="text-headline-md text-on-surface">Rapports</h1>
+          <p className="text-body-sm text-on-surface-variant mt-1">Indicateurs de performance de votre compagnie.</p>
+        </div>
+        <div className="flex gap-2 sm:ml-auto flex-wrap">
+          {PERIODS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setPeriod(key)}
+              className={`px-3 py-1.5 rounded-lg text-label-md transition-colors ${
+                period === key
+                  ? 'bg-primary text-on-primary'
+                  : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+      {stats?.dailySales != null && (
+        <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card p-5 mb-6">
+          <h2 className="text-title-sm text-on-surface-variant mb-1">Chiffre d&apos;affaires</h2>
+          <p className="text-display-sm text-primary font-bold">
+            {(stats.dailySales || 0).toLocaleString('fr-FR')} FCFA
+          </p>
+          <p className="text-body-sm text-on-surface-variant mt-1">{revenueLabel}</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
         {kpis.map(({ label, value, icon, color }) => (
           <div key={label} className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card p-5">
             <span className={`material-symbols-outlined ${color} mb-3 block`} style={{ fontSize: '28px' }}>{icon}</span>
@@ -1087,13 +2091,265 @@ function RapportsSection({ user }) {
         ))}
       </div>
 
-      {stats?.dailySales != null && (
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        {rates.map(({ label, value, icon, color }) => (
+          <div key={label} className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card p-5">
+            <span className={`material-symbols-outlined ${color} mb-3 block`} style={{ fontSize: '28px' }}>{icon}</span>
+            {loading ? (
+              <div className="h-8 bg-surface-container rounded animate-pulse mb-1" />
+            ) : (
+              <p className="text-headline-sm text-on-surface mb-1">{value ?? '—'}</p>
+            )}
+            <p className="text-body-sm text-on-surface-variant">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {stats?.topRoutes?.length > 0 && (
         <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card p-5">
-          <h2 className="text-headline-sm text-on-surface mb-2">Ventes du jour</h2>
-          <p className="text-display-sm text-primary font-bold">
-            {stats.dailySales.toLocaleString('fr-FR')} FCFA
-          </p>
-          <p className="text-body-sm text-on-surface-variant mt-1">Paiements confirmés aujourd&apos;hui</p>
+          <h2 className="text-headline-sm text-on-surface mb-4">Top lignes</h2>
+          <div className="space-y-3">
+            {stats.topRoutes.map((route, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-label-sm flex items-center justify-center font-bold shrink-0">{i + 1}</span>
+                <span className="flex-1 text-body-md text-on-surface truncate">{route.label}</span>
+                <span className="text-label-md text-on-surface-variant shrink-0">{route.count} rés.</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── Trajets Récurrents ─────────────────────────────────────────────────────────
+const DAY_LABELS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi']
+
+function RecurringTripsSection({ user }) {
+  const [templates, setTemplates] = useState([])
+  const [routes, setRoutes] = useState([])
+  const [vehicles, setVehicles] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ routeId: '', vehicleId: '', dayOfWeek: '1', departureTime: '08:00', price: '', validFrom: '' })
+  const [submitting, setSubmitting] = useState(false)
+  const [generating, setGenerating] = useState(null)
+  const [error, setError] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [tRes, rRes, vRes] = await Promise.all([
+        listRecurringTrips(user.companyId),
+        listRoutes(),
+        listVehicles(),
+      ])
+      setTemplates(tRes.data?.data || [])
+      setRoutes(rRes.data?.data?.routes || [])
+      setVehicles(vRes.data?.data?.vehicles || [])
+    } catch {
+      setError('Erreur lors du chargement.')
+    } finally {
+      setLoading(false)
+    }
+  }, [user.companyId])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleCreate(e) {
+    e.preventDefault()
+    setSubmitting(true)
+    setError(null)
+    try {
+      await createRecurringTrip({
+        ...form,
+        dayOfWeek: parseInt(form.dayOfWeek, 10),
+        price: parseInt(form.price, 10),
+        validFrom: form.validFrom || undefined,
+      })
+      setShowForm(false)
+      setForm({ routeId: '', vehicleId: '', dayOfWeek: '1', departureTime: '08:00', price: '', validFrom: '' })
+      load()
+    } catch (err) {
+      setError(err.response?.data?.error || 'Erreur lors de la création.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleGenerate(id) {
+    setGenerating(id)
+    setError(null)
+    try {
+      const res = await generateTrips(id, 4)
+      const { generated = 0, skipped = 0 } = res.data?.data || {}
+      alert(`${generated} trajet(s) créé(s), ${skipped} déjà existant(s).`)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Erreur lors de la génération.')
+    } finally {
+      setGenerating(null)
+    }
+  }
+
+  async function handleDeactivate(id) {
+    if (!window.confirm('Désactiver ce modèle de trajet récurrent ?')) return
+    try {
+      await deleteRecurringTrip(id)
+      load()
+    } catch {
+      setError('Erreur lors de la désactivation.')
+    }
+  }
+
+  return (
+    <>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-4">
+        <div>
+          <h1 className="text-headline-md text-on-surface">Trajets récurrents</h1>
+          <p className="text-body-sm text-on-surface-variant mt-1">Modèles de trajets générés automatiquement chaque semaine.</p>
+        </div>
+        <button
+          onClick={() => setShowForm((s) => !s)}
+          className="flex items-center gap-2 bg-primary text-on-primary px-4 py-2.5 rounded-xl text-label-lg hover:opacity-90 transition font-medium sm:ml-auto"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>{showForm ? 'close' : 'add'}</span>
+          {showForm ? 'Annuler' : 'Nouveau modèle'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-error-container/20 border border-error/30 rounded-xl text-error text-body-sm">{error}</div>
+      )}
+
+      {showForm && (
+        <form onSubmit={handleCreate} className="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <h2 className="text-title-md text-on-surface col-span-full">Nouveau modèle de trajet récurrent</h2>
+          <div>
+            <label className="text-label-md text-on-surface-variant mb-1 block">Ligne</label>
+            <select
+              required
+              value={form.routeId}
+              onChange={(e) => setForm((f) => ({ ...f, routeId: e.target.value }))}
+              className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface text-on-surface"
+            >
+              <option value="">Sélectionner une ligne</option>
+              {routes.map((r) => (
+                <option key={r.id} value={r.id}>{r.origin} → {r.destination}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-label-md text-on-surface-variant mb-1 block">Véhicule</label>
+            <select
+              required
+              value={form.vehicleId}
+              onChange={(e) => setForm((f) => ({ ...f, vehicleId: e.target.value }))}
+              className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface text-on-surface"
+            >
+              <option value="">Sélectionner un véhicule</option>
+              {vehicles.map((v) => (
+                <option key={v.id} value={v.id}>{v.registrationNumber} ({v.totalSeats} places)</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-label-md text-on-surface-variant mb-1 block">Jour de la semaine</label>
+            <select
+              value={form.dayOfWeek}
+              onChange={(e) => setForm((f) => ({ ...f, dayOfWeek: e.target.value }))}
+              className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface text-on-surface"
+            >
+              {DAY_LABELS.map((label, i) => (
+                <option key={i} value={String(i)}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-label-md text-on-surface-variant mb-1 block">Heure de départ</label>
+            <input
+              type="time"
+              required
+              value={form.departureTime}
+              onChange={(e) => setForm((f) => ({ ...f, departureTime: e.target.value }))}
+              className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface text-on-surface"
+            />
+          </div>
+          <div>
+            <label className="text-label-md text-on-surface-variant mb-1 block">Prix (FCFA)</label>
+            <input
+              type="number"
+              required
+              min="0"
+              value={form.price}
+              onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+              placeholder="ex : 15000"
+              className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface text-on-surface"
+            />
+          </div>
+          <div>
+            <label className="text-label-md text-on-surface-variant mb-1 block">Valide à partir du (optionnel)</label>
+            <input
+              type="date"
+              value={form.validFrom}
+              onChange={(e) => setForm((f) => ({ ...f, validFrom: e.target.value }))}
+              className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface text-on-surface"
+            />
+          </div>
+          <div className="col-span-full flex justify-end gap-3">
+            <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 rounded-xl text-label-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container transition">
+              Annuler
+            </button>
+            <button type="submit" disabled={submitting} className="px-4 py-2 rounded-xl bg-primary text-on-primary text-label-lg hover:opacity-90 transition disabled:opacity-50">
+              {submitting ? 'Création…' : 'Créer le modèle'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {loading ? (
+        <Spinner />
+      ) : templates.length === 0 ? (
+        <EmptyState icon="repeat" text="Aucun modèle de trajet récurrent." />
+      ) : (
+        <div className="space-y-3">
+          {templates.map((t) => (
+            <div key={t.id} className="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="text-title-sm text-on-surface font-medium">
+                  {t.route?.origin ?? '?'} → {t.route?.destination ?? '?'}
+                </p>
+                <p className="text-body-sm text-on-surface-variant mt-0.5">
+                  {DAY_LABELS[t.dayOfWeek]} à {t.departureTime} · {t.vehicle?.registrationNumber ?? '?'} · {(t.price ?? 0).toLocaleString('fr-FR')} FCFA
+                </p>
+                <p className="text-label-sm text-on-surface-variant mt-0.5">
+                  {t._count?.trips ?? 0} trajet(s) généré(s) ·{' '}
+                  {t.isActive
+                    ? <span className="text-secondary">Actif</span>
+                    : <span className="text-error">Inactif</span>}
+                </p>
+              </div>
+              <div className="flex gap-2 shrink-0 flex-wrap">
+                <button
+                  onClick={() => handleGenerate(t.id)}
+                  disabled={generating === t.id || !t.isActive}
+                  className="flex items-center gap-1 px-3 py-2 rounded-lg bg-primary/10 text-primary text-label-md hover:bg-primary/20 transition disabled:opacity-40"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>auto_awesome</span>
+                  {generating === t.id ? 'Génération…' : 'Générer 4 sem.'}
+                </button>
+                {t.isActive && (
+                  <button
+                    onClick={() => handleDeactivate(t.id)}
+                    className="flex items-center gap-1 px-3 py-2 rounded-lg bg-error/10 text-error text-label-md hover:bg-error/20 transition"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>block</span>
+                    Désactiver
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </>
@@ -1102,7 +2358,7 @@ function RapportsSection({ user }) {
 
 // ── Page principale ────────────────────────────────────────────────────────────
 export default function AdminPage() {
-  const { isAuthenticated, user } = useAuth()
+  const { isAuthenticated, user, logout } = useAuth()
   const [activeSection, setActiveSection] = useState('dashboard')
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
@@ -1110,10 +2366,14 @@ export default function AdminPage() {
 
   const navLinks = [
     { key: 'dashboard', icon: 'dashboard', label: 'Tableau de bord' },
-    { key: 'bus', icon: 'directions_bus', label: 'Gestion des bus' },
+    { key: 'lignes', icon: 'route', label: 'Lignes' },
+    { key: 'bus', icon: 'directions_bus', label: 'Véhicules' },
+    { key: 'places', icon: 'airline_seat_recline_extra', label: 'Places' },
     { key: 'horaires', icon: 'schedule', label: 'Horaires' },
-    { key: 'agents', icon: 'badge', label: 'Agents & Chauffeurs' },
+    { key: 'reservations', icon: 'confirmation_number', label: 'Réservations' },
+    { key: 'agents', icon: 'badge', label: 'Agents' },
     { key: 'rapports', icon: 'bar_chart', label: 'Rapports' },
+    { key: 'trajets-recurrents', icon: 'repeat', label: 'Trajets récurrents' },
   ]
 
   return (
@@ -1162,11 +2422,7 @@ export default function AdminPage() {
 
         {/* Footer */}
         <div className="px-3 py-4 border-t border-outline-variant">
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-body-md text-on-surface-variant hover:bg-surface-container transition-colors text-left">
-            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>settings</span>
-            Paramètres
-          </button>
-          <div className="px-3 pt-3 flex items-center gap-3">
+          <div className="px-3 pb-3 flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
               <span className="text-label-lg text-primary font-bold">{user?.firstName?.[0]}</span>
             </div>
@@ -1175,6 +2431,13 @@ export default function AdminPage() {
               <p className="text-label-sm text-on-surface-variant opacity-70 truncate">{user?.role}</p>
             </div>
           </div>
+          <button
+            onClick={logout}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-body-md text-error hover:bg-error-container/20 transition-colors text-left"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>logout</span>
+            Se déconnecter
+          </button>
         </div>
       </aside>
 
@@ -1184,6 +2447,13 @@ export default function AdminPage() {
           <span className="material-symbols-outlined text-on-primary" style={{ fontSize: '16px' }}>directions_bus</span>
         </div>
         <p className="text-primary font-bold text-title-md flex-1">Gestion Mobili</p>
+        <button
+          onClick={logout}
+          className="flex items-center gap-1 text-error hover:bg-error-container/20 px-2 py-1 rounded-lg transition-colors"
+          title="Se déconnecter"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>logout</span>
+        </button>
       </div>
 
       {/* Mobile bottom nav */}
@@ -1205,11 +2475,14 @@ export default function AdminPage() {
       {/* Main */}
       <main className="flex-1 md:ml-64 pt-16 md:pt-0 pb-24 md:pb-0 px-4 md:px-8 py-8">
         {activeSection === 'dashboard' && <DashboardSection user={user} onNavigate={setActiveSection} />}
+        {activeSection === 'lignes' && <LignesSection />}
         {activeSection === 'bus' && <VehiculesSection />}
+        {activeSection === 'places' && <PlacesSection />}
         {activeSection === 'horaires' && <TrajetsSection />}
+        {activeSection === 'reservations' && <ReservationsSection />}
         {activeSection === 'agents' && <AgentsSection />}
         {activeSection === 'rapports' && <RapportsSection user={user} />}
-        {activeSection === 'lignes' && <LignesSection />}
+        {activeSection === 'trajets-recurrents' && <RecurringTripsSection user={user} />}
       </main>
     </div>
   )

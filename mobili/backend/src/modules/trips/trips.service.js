@@ -1,14 +1,15 @@
 const prisma = require('../../config/prisma')
 
 async function searchTrips({ from, to, date }) {
-  const departureDateStart = new Date(`${date}T00:00:00.000Z`)
-  const departureDateEnd = new Date(`${date}T23:59:59.999Z`)
+  const dateFilter = date
+    ? { gte: new Date(`${date}T00:00:00.000Z`), lte: new Date(`${date}T23:59:59.999Z`) }
+    : { gte: new Date() }
 
   const trips = await prisma.trip.findMany({
     where: {
       status: 'SCHEDULED',
       availableSeats: { gt: 0 },
-      departureDate: { gte: departureDateStart, lte: departureDateEnd },
+      departureDate: dateFilter,
       route: {
         origin: { contains: from, mode: 'insensitive' },
         destination: { contains: to, mode: 'insensitive' },
@@ -65,6 +66,25 @@ async function getTripById(id) {
     err.status = 404
     throw err
   }
+
+  // Calculer la disponibilité réelle par trajet
+  const [reservedIds, blockedIds] = await Promise.all([
+    prisma.reservation
+      .findMany({
+        where: { tripId: id, status: { in: ['PENDING', 'CONFIRMED'] } },
+        select: { seatId: true },
+      })
+      .then((rs) => new Set(rs.map((r) => r.seatId))),
+    prisma.tripSeatBlock
+      .findMany({ where: { tripId: id }, select: { seatId: true } })
+      .then((bs) => new Set(bs.map((b) => b.seatId))),
+  ])
+
+  trip.vehicle.seats = trip.vehicle.seats.map((seat) => ({
+    ...seat,
+    isAvailable: seat.isAvailable && !reservedIds.has(seat.id) && !blockedIds.has(seat.id),
+  }))
+
   return trip
 }
 
@@ -91,15 +111,23 @@ async function getTodayTrips(companyId) {
   })
 }
 
-async function listCompanyTrips(companyId, { page = 1, limit = 20, from, to } = {}) {
+async function listCompanyTrips(
+  companyId,
+  { page = 1, limit = 20, from, to, status, origin, destination } = {}
+) {
   const skip = (page - 1) * limit
   const where = {
-    route: { companyId },
-    ...(from && to
+    route: {
+      companyId,
+      ...(origin ? { origin: { contains: origin, mode: 'insensitive' } } : {}),
+      ...(destination ? { destination: { contains: destination, mode: 'insensitive' } } : {}),
+    },
+    ...(status ? { status } : {}),
+    ...(from || to
       ? {
           departureDate: {
-            gte: new Date(`${from}T00:00:00.000Z`),
-            lte: new Date(`${to}T23:59:59.999Z`),
+            ...(from ? { gte: new Date(`${from}T00:00:00.000Z`) } : {}),
+            ...(to ? { lte: new Date(`${to}T23:59:59.999Z`) } : {}),
           },
         }
       : {}),
@@ -110,9 +138,9 @@ async function listCompanyTrips(companyId, { page = 1, limit = 20, from, to } = 
       include: {
         route: { select: { id: true, origin: true, destination: true } },
         vehicle: { select: { id: true, registrationNumber: true, type: true, totalSeats: true } },
-        reservations: { where: { status: 'CONFIRMED' }, select: { id: true } },
+        reservations: { where: { status: { in: ['PENDING', 'CONFIRMED'] } }, select: { id: true } },
       },
-      orderBy: [{ departureDate: 'desc' }, { departureTime: 'asc' }],
+      orderBy: [{ departureDate: 'asc' }, { departureTime: 'asc' }],
       skip,
       take: limit,
     }),
