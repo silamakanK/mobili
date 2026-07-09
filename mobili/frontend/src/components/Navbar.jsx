@@ -11,12 +11,6 @@ export default function Navbar() {
           Mobili
         </Link>
         <div className="hidden md:flex items-center gap-6">
-          <Link
-            to="/search"
-            className="text-body-md text-on-surface-variant hover:text-on-surface transition-colors"
-          >
-            Rechercher
-          </Link>
           {isAuthenticated ? (
             <>
               <Link

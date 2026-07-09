@@ -5,6 +5,7 @@ import Navbar from '../components/Navbar'
 import BottomNav from '../components/BottomNav'
 import { useAuth } from '../contexts/AuthContext'
 import { getMyReservations, cancelReservation } from '../services/reservations'
+import { updateMe } from '../services/users'
 
 const STATUS_CONFIG = {
   CONFIRMED: { label: 'Payé', className: 'bg-secondary-container text-on-secondary-container' },
@@ -37,6 +38,8 @@ function ReservationRow({ reservation, onCancel }) {
     setCancelling(true)
     try {
       await cancelReservation(reservation.id)
+      setConfirmOpen(false)
+      setCancelling(false)
       onCancel()
     } catch (err) {
       alert(err.response?.data?.error || 'Erreur lors de l\'annulation.')
@@ -139,10 +142,15 @@ ReservationRow.propTypes = {
 }
 
 export default function DashboardPage() {
-  const { isAuthenticated, user, logout } = useAuth()
+  const { isAuthenticated, user, logout, updateUser } = useAuth()
   const [reservations, setReservations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editForm, setEditForm] = useState({ firstName: '', lastName: '', phone: '', password: '' })
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState(null)
+  const [editSuccess, setEditSuccess] = useState(false)
 
   const loadReservations = useCallback(() => {
     getMyReservations()
@@ -155,6 +163,34 @@ export default function DashboardPage() {
     if (!isAuthenticated) return
     loadReservations()
   }, [isAuthenticated, loadReservations])
+
+  function openEdit() {
+    setEditForm({ firstName: user?.firstName || '', lastName: user?.lastName || '', phone: user?.phone || '', password: '' })
+    setEditError(null)
+    setEditSuccess(false)
+    setEditOpen(true)
+  }
+
+  async function handleEditSave(e) {
+    e.preventDefault()
+    setEditSaving(true)
+    setEditError(null)
+    try {
+      const payload = {}
+      if (editForm.firstName !== user?.firstName) payload.firstName = editForm.firstName
+      if (editForm.lastName !== user?.lastName) payload.lastName = editForm.lastName
+      if (editForm.phone !== user?.phone) payload.phone = editForm.phone
+      if (editForm.password) payload.password = editForm.password
+      const res = await updateMe(payload)
+      updateUser(res.data.data)
+      setEditSuccess(true)
+      setTimeout(() => { setEditOpen(false); setEditSuccess(false) }, 1200)
+    } catch (err) {
+      setEditError(err.response?.data?.error || 'Erreur lors de la mise à jour.')
+    } finally {
+      setEditSaving(false)
+    }
+  }
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
 
@@ -201,22 +237,90 @@ export default function DashboardPage() {
                 </p>
               </div>
 
-              <div className="space-y-2">
-                <Link
-                  to="/search"
-                  className="w-full flex items-center gap-2 px-4 py-3 rounded-lg bg-secondary-container text-on-secondary-container text-label-lg font-medium hover:bg-secondary-fixed-dim transition-colors"
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>search</span>
-                  <span>Nouveau trajet</span>
-                </Link>
-                <button
-                  onClick={logout}
-                  className="w-full flex items-center gap-2 px-4 py-3 rounded-lg border border-outline-variant text-on-surface-variant text-label-lg hover:bg-surface-container transition-colors"
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>logout</span>
-                  <span>Se déconnecter</span>
-                </button>
-              </div>
+              {editOpen ? (
+                <form onSubmit={handleEditSave} className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-label-sm text-on-surface-variant mb-1 block">Prénom</label>
+                      <input
+                        className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                        value={editForm.firstName}
+                        onChange={(e) => setEditForm((f) => ({ ...f, firstName: e.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-label-sm text-on-surface-variant mb-1 block">Nom</label>
+                      <input
+                        className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                        value={editForm.lastName}
+                        onChange={(e) => setEditForm((f) => ({ ...f, lastName: e.target.value }))}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-label-sm text-on-surface-variant mb-1 block">Téléphone</label>
+                    <input
+                      className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                      value={editForm.phone}
+                      onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-label-sm text-on-surface-variant mb-1 block">Nouveau mot de passe <span className="text-on-surface-variant/60">(optionnel)</span></label>
+                    <input
+                      type="password"
+                      className="w-full border border-outline-variant rounded-lg px-3 py-2 text-body-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="Laisser vide pour ne pas changer"
+                      value={editForm.password}
+                      onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))}
+                    />
+                  </div>
+                  {editError && <p className="text-label-sm text-error">{editError}</p>}
+                  {editSuccess && <p className="text-label-sm text-primary">Profil mis à jour !</p>}
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={editSaving}
+                      className="flex-1 bg-primary text-on-primary text-label-lg py-2 rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                    >
+                      {editSaving ? 'Enregistrement…' : 'Enregistrer'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditOpen(false)}
+                      className="px-4 py-2 rounded-lg border border-outline-variant text-on-surface-variant text-label-lg hover:bg-surface-container transition-colors"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="space-y-2">
+                  <Link
+                    to="/search"
+                    className="w-full flex items-center gap-2 px-4 py-3 rounded-lg bg-secondary-container text-on-secondary-container text-label-lg font-medium hover:bg-secondary-fixed-dim transition-colors"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>search</span>
+                    <span>Nouveau trajet</span>
+                  </Link>
+                  <button
+                    onClick={openEdit}
+                    className="w-full flex items-center gap-2 px-4 py-3 rounded-lg border border-outline-variant text-on-surface-variant text-label-lg hover:bg-surface-container transition-colors"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
+                    <span>Modifier le profil</span>
+                  </button>
+                  <button
+                    onClick={logout}
+                    className="w-full flex items-center gap-2 px-4 py-3 rounded-lg border border-outline-variant text-on-surface-variant text-label-lg hover:bg-surface-container transition-colors"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>logout</span>
+                    <span>Se déconnecter</span>
+                  </button>
+                </div>
+              )}
             </div>
           </aside>
 

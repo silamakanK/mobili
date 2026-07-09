@@ -29,7 +29,7 @@ function _validateReservations(sorted, userId) {
   }
 }
 
-async function _resolveIdempotentRedirect(sorted, primary, userId) {
+async function _resolveIdempotentRedirect(sorted, primary) {
   if (!stripeConfigured()) return null
   if (primary.payment.transactionId?.startsWith('cs_')) {
     try {
@@ -37,12 +37,12 @@ async function _resolveIdempotentRedirect(sorted, primary, userId) {
       const session = await stripe.checkout.sessions.retrieve(primary.payment.transactionId)
       return session.status === 'open'
         ? session.url
-        : await _createStripeSessionMulti(sorted, primary.payment, userId)
+        : await _createStripeSessionMulti(sorted, primary.payment)
     } catch {
-      return _createStripeSessionMulti(sorted, primary.payment, userId)
+      return _createStripeSessionMulti(sorted, primary.payment)
     }
   }
-  return _createStripeSessionMulti(sorted, primary.payment, userId)
+  return _createStripeSessionMulti(sorted, primary.payment)
 }
 
 async function _createPaymentRecords(sorted, primary, totalAmount, paymentMethod) {
@@ -87,7 +87,7 @@ async function initiatePayment({ reservationIds, userId, method = 'CARD' }) {
   const totalAmount = sorted.reduce((sum, r) => sum + r.totalAmount, 0)
 
   if (primary.payment?.status === 'PENDING') {
-    const redirectUrl = await _resolveIdempotentRedirect(sorted, primary, userId)
+    const redirectUrl = await _resolveIdempotentRedirect(sorted, primary)
     return {
       paymentId: primary.payment.id,
       amount: primary.payment.amount,
@@ -104,7 +104,7 @@ async function initiatePayment({ reservationIds, userId, method = 'CARD' }) {
   if (paymentMethod === 'ORANGE_MONEY' && omConfigured()) {
     redirectUrl = await _createOrangeMoneyPayment(primary, primaryPayment)
   } else if (stripeConfigured()) {
-    redirectUrl = await _createStripeSessionMulti(sorted, primaryPayment, userId)
+    redirectUrl = await _createStripeSessionMulti(sorted, primaryPayment)
   } else if (cinetpayConfigured()) {
     redirectUrl = await _createCinetpayInvoice(primary, primaryPayment, userId)
   }
@@ -118,9 +118,8 @@ async function initiatePayment({ reservationIds, userId, method = 'CARD' }) {
   }
 }
 
-async function _createStripeSessionMulti(reservations, primaryPayment, userId) {
+async function _createStripeSessionMulti(reservations, primaryPayment) {
   const stripe = getStripe()
-  const user = await prisma.user.findUnique({ where: { id: userId } })
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
 
   const primary = reservations[0]
@@ -131,6 +130,7 @@ async function _createStripeSessionMulti(reservations, primaryPayment, userId) {
   const reservationCodes = reservations.map((r) => r.reservationCode).join(',')
 
   const session = await stripe.checkout.sessions.create({
+    payment_method_types: ['card'],
     line_items: [
       {
         price_data: {
@@ -146,7 +146,6 @@ async function _createStripeSessionMulti(reservations, primaryPayment, userId) {
       },
     ],
     mode: 'payment',
-    customer_email: user?.email || undefined,
     success_url: `${frontendUrl}/payment/return`,
     cancel_url: `${frontendUrl}/payment`,
     metadata: { reservationCodes, paymentId: primaryPayment.id },

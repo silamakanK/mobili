@@ -1,6 +1,17 @@
 const { z } = require('zod')
 const usersService = require('./users.service')
 
+const updateMeSchema = z.object({
+  firstName: z.string().min(1).max(50).optional(),
+  lastName: z.string().min(1).max(50).optional(),
+  phone: z
+    .string()
+    .regex(/^\+?\d{8,15}$/)
+    .optional(),
+  password: z.string().min(8).optional(),
+  currentPassword: z.string().optional(),
+})
+
 const createManagerSchema = z.object({
   firstName: z.string().min(1).max(50),
   lastName: z.string().min(1).max(50),
@@ -98,6 +109,28 @@ async function listManagersHandler(req, res, next) {
   }
 }
 
+async function getMeHandler(req, res, next) {
+  try {
+    const user = await usersService.getMe(req.user.id)
+    res.json({ success: true, data: user })
+  } catch (err) {
+    next(err)
+  }
+}
+
+async function updateMeHandler(req, res, next) {
+  try {
+    const data = updateMeSchema.parse(req.body)
+    delete data.currentPassword
+    const user = await usersService.updateMe(req.user.id, data)
+    res.json({ success: true, data: user })
+  } catch (err) {
+    if (err instanceof z.ZodError)
+      return res.status(400).json({ success: false, errors: err.errors })
+    next(err)
+  }
+}
+
 module.exports = {
   listHandler,
   createAgentHandler,
@@ -105,4 +138,6 @@ module.exports = {
   listManagersHandler,
   updateHandler,
   deleteHandler,
+  getMeHandler,
+  updateMeHandler,
 }

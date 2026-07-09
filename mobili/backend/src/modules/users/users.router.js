@@ -8,12 +8,16 @@ const {
   listManagersHandler,
   updateHandler,
   deleteHandler,
+  getMeHandler,
+  updateMeHandler,
 } = require('./users.controller')
 
 const router = Router()
 const adminOrSuper = [authenticate, authorize('ADMIN_COMPANY', 'SUPER_ADMIN')]
 const superOnly = [authenticate, authorize('SUPER_ADMIN')]
 
+router.get('/me', authenticate, getMeHandler)
+router.put('/me', authenticate, updateMeHandler)
 router.get('/', ...adminOrSuper, listHandler)
 router.post('/agents', ...adminOrSuper, createAgentHandler)
 router.post('/managers', ...superOnly, createManagerHandler)
