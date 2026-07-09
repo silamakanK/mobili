@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getCompanyStats, getGlobalStats } from '../services/stats'
-import { listRoutes, createRoute, deleteRoute } from '../services/routes'
-import { listVehicles, createVehicle, deleteVehicle } from '../services/vehicles'
+import { listRoutes, createRoute, updateRoute, deleteRoute } from '../services/routes'
+import { listVehicles, createVehicle, updateVehicle, deleteVehicle } from '../services/vehicles'
 import { listCompanyTrips, createTrip, updateTrip, cancelTrip, getTripPassengers } from '../services/trips-admin'
 import { listUsers, createAgent, updateUser } from '../services/users'
 import { listCompanyReservations } from '../services/reservations'
@@ -256,6 +256,9 @@ function LignesSection() {
   const [form, setForm] = useState({ origin: '', destination: '', distance: '', estimatedDuration: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState({ distance: '', estimatedDuration: '' })
+  const [editSaving, setEditSaving] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -295,6 +298,24 @@ function LignesSection() {
       load()
     } catch (err) {
       alert(err.response?.data?.error || 'Erreur.')
+    }
+  }
+
+  const startEdit = (r) => {
+    setEditingId(r.id)
+    setEditForm({ distance: r.distance, estimatedDuration: r.estimatedDuration })
+  }
+
+  const handleEditSave = async (id) => {
+    setEditSaving(true)
+    try {
+      await updateRoute(id, { distance: Number(editForm.distance), estimatedDuration: Number(editForm.estimatedDuration) })
+      setEditingId(null)
+      load()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Erreur.')
+    } finally {
+      setEditSaving(false)
     }
   }
 
@@ -391,19 +412,70 @@ function LignesSection() {
                   <td className="px-5 py-3 text-body-md text-on-surface font-medium">
                     {r.origin} → {r.destination}
                   </td>
-                  <td className="px-5 py-3 text-body-sm text-on-surface-variant">{r.distance} km</td>
-                  <td className="px-5 py-3 text-body-sm text-on-surface-variant">
-                    {Math.floor(r.estimatedDuration / 60)}h{String(r.estimatedDuration % 60).padStart(2, '0')}
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    <button
-                      onClick={() => handleDelete(r.id)}
-                      className="text-error hover:bg-error-container/30 p-1 rounded-lg transition"
-                      title="Désactiver"
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>delete</span>
-                    </button>
-                  </td>
+                  {editingId === r.id ? (
+                    <>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number" min={1}
+                          value={editForm.distance}
+                          onChange={(e) => setEditForm((f) => ({ ...f, distance: e.target.value }))}
+                          className="w-24 border border-outline-variant rounded-lg px-2 py-1 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <span className="ml-1 text-body-sm text-on-surface-variant">km</span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number" min={1}
+                          value={editForm.estimatedDuration}
+                          onChange={(e) => setEditForm((f) => ({ ...f, estimatedDuration: e.target.value }))}
+                          className="w-24 border border-outline-variant rounded-lg px-2 py-1 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <span className="ml-1 text-body-sm text-on-surface-variant">min</span>
+                      </td>
+                      <td className="px-3 py-2 text-right flex gap-2 justify-end">
+                        <button
+                          onClick={() => handleEditSave(r.id)}
+                          disabled={editSaving}
+                          className="text-primary hover:bg-primary/10 p-1 rounded-lg transition disabled:opacity-50"
+                          title="Enregistrer"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>check</span>
+                        </button>
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="text-on-surface-variant hover:bg-surface-container p-1 rounded-lg transition"
+                          title="Annuler"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>close</span>
+                        </button>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-5 py-3 text-body-sm text-on-surface-variant">{r.distance} km</td>
+                      <td className="px-5 py-3 text-body-sm text-on-surface-variant">
+                        {Math.floor(r.estimatedDuration / 60)}h{String(r.estimatedDuration % 60).padStart(2, '0')}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <div className="flex gap-1 justify-end">
+                          <button
+                            onClick={() => startEdit(r)}
+                            className="text-on-surface-variant hover:bg-surface-container p-1 rounded-lg transition"
+                            title="Modifier"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
+                          </button>
+                          <button
+                            onClick={() => handleDelete(r.id)}
+                            className="text-error hover:bg-error-container/30 p-1 rounded-lg transition"
+                            title="Désactiver"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>delete</span>
+                          </button>
+                        </div>
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -422,6 +494,9 @@ function VehiculesSection() {
   const [form, setForm] = useState({ registrationNumber: '', type: 'BUS', totalSeats: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState({ registrationNumber: '', type: 'BUS', totalSeats: '' })
+  const [editSaving, setEditSaving] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -460,6 +535,28 @@ function VehiculesSection() {
       load()
     } catch (err) {
       alert(err.response?.data?.error || 'Erreur.')
+    }
+  }
+
+  const startEdit = (v) => {
+    setEditingId(v.id)
+    setEditForm({ registrationNumber: v.registrationNumber, type: v.type, totalSeats: v.totalSeats })
+  }
+
+  const handleEditSave = async (id) => {
+    setEditSaving(true)
+    try {
+      await updateVehicle(id, {
+        registrationNumber: editForm.registrationNumber.trim().toUpperCase(),
+        type: editForm.type,
+        totalSeats: Number(editForm.totalSeats),
+      })
+      setEditingId(null)
+      load()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Erreur.')
+    } finally {
+      setEditSaving(false)
     }
   }
 
@@ -547,18 +644,80 @@ function VehiculesSection() {
             <tbody>
               {vehicles.map((v) => (
                 <tr key={v.id} className="border-b border-outline-variant last:border-0 hover:bg-surface-container transition-colors">
-                  <td className="px-5 py-3 text-body-md text-on-surface font-medium font-mono">{v.registrationNumber}</td>
-                  <td className="px-5 py-3 text-body-sm text-on-surface-variant">{vehicleTypeLabel[v.type] || v.type}</td>
-                  <td className="px-5 py-3 text-body-sm text-on-surface-variant">{v.totalSeats} places</td>
-                  <td className="px-5 py-3 text-right">
-                    <button
-                      onClick={() => handleDelete(v.id)}
-                      className="text-error hover:bg-error-container/30 p-1 rounded-lg transition"
-                      title="Désactiver"
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>delete</span>
-                    </button>
-                  </td>
+                  {editingId === v.id ? (
+                    <>
+                      <td className="px-3 py-2">
+                        <input
+                          value={editForm.registrationNumber}
+                          onChange={(e) => setEditForm((f) => ({ ...f, registrationNumber: e.target.value }))}
+                          className="w-36 border border-outline-variant rounded-lg px-2 py-1 text-body-sm bg-surface uppercase focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <select
+                          value={editForm.type}
+                          onChange={(e) => setEditForm((f) => ({ ...f, type: e.target.value }))}
+                          className="border border-outline-variant rounded-lg px-2 py-1 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                        >
+                          <option value="BUS">Bus</option>
+                          <option value="MINIBUS">Minibus</option>
+                          <option value="VAN">Van</option>
+                        </select>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number" min={1} max={100}
+                          value={editForm.totalSeats}
+                          onChange={(e) => setEditForm((f) => ({ ...f, totalSeats: e.target.value }))}
+                          className="w-20 border border-outline-variant rounded-lg px-2 py-1 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <span className="ml-1 text-body-sm text-on-surface-variant">places</span>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() => handleEditSave(v.id)}
+                            disabled={editSaving}
+                            className="text-primary hover:bg-primary/10 p-1 rounded-lg transition disabled:opacity-50"
+                            title="Enregistrer"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>check</span>
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="text-on-surface-variant hover:bg-surface-container p-1 rounded-lg transition"
+                            title="Annuler"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>close</span>
+                          </button>
+                        </div>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-5 py-3 text-body-md text-on-surface font-medium font-mono">{v.registrationNumber}</td>
+                      <td className="px-5 py-3 text-body-sm text-on-surface-variant">{vehicleTypeLabel[v.type] || v.type}</td>
+                      <td className="px-5 py-3 text-body-sm text-on-surface-variant">{v.totalSeats} places</td>
+                      <td className="px-5 py-3 text-right">
+                        <div className="flex gap-1 justify-end">
+                          <button
+                            onClick={() => startEdit(v)}
+                            className="text-on-surface-variant hover:bg-surface-container p-1 rounded-lg transition"
+                            title="Modifier"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
+                          </button>
+                          <button
+                            onClick={() => handleDelete(v.id)}
+                            className="text-error hover:bg-error-container/30 p-1 rounded-lg transition"
+                            title="Désactiver"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>delete</span>
+                          </button>
+                        </div>
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>

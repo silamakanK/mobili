@@ -196,7 +196,7 @@ export default function DashboardPage() {
 
   const now = new Date()
   const upcoming = [...reservations]
-    .filter((r) => r.status === 'CONFIRMED' && new Date(r.trip?.departureDate) >= now)
+    .filter((r) => ['CONFIRMED', 'PENDING'].includes(r.status) && new Date(r.trip?.departureDate) >= now)
     .sort((a, b) => new Date(a.trip?.departureDate) - new Date(b.trip?.departureDate))[0]
   const history = reservations.filter((r) => r !== upcoming)
 
