@@ -6,6 +6,7 @@ const {
   downloadTicketHandler,
   searchTicketsHandler,
   validateTicketHandler,
+  sendTicketHandler,
 } = require('./tickets.controller')
 
 const router = Router()
@@ -22,6 +23,7 @@ router.get(
   authorize('AGENT', 'ADMIN_COMPANY', 'SUPER_ADMIN'),
   searchTicketsHandler
 )
+router.post('/:id/send', authenticate, sendTicketHandler)
 router.get('/:id/download', authenticate, downloadTicketHandler)
 router.get('/:id', authenticate, getTicketByIdHandler)
 

@@ -58,9 +58,19 @@ async function validateTicketHandler(req, res, next) {
   }
 }
 
+async function sendTicketHandler(req, res, next) {
+  try {
+    await ticketService.resendTicketByEmail(req.params.id, req.user.id)
+    res.json({ success: true, message: 'Billet envoyé par email.' })
+  } catch (err) {
+    next(err)
+  }
+}
+
 module.exports = {
   getTicketByIdHandler,
   downloadTicketHandler,
   searchTicketsHandler,
   validateTicketHandler,
+  sendTicketHandler,
 }

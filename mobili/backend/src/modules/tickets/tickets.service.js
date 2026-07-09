@@ -3,6 +3,21 @@ const QRCode = require('qrcode')
 const PDFDocument = require('pdfkit')
 const prisma = require('../../config/prisma')
 
+const TICKET_INCLUDE = {
+  reservation: {
+    include: {
+      user: { select: { firstName: true, lastName: true, email: true, phone: true } },
+      trip: {
+        include: {
+          route: { include: { company: { select: { name: true } } } },
+          vehicle: { select: { type: true } },
+        },
+      },
+      seat: { select: { seatNumber: true, type: true } },
+    },
+  },
+}
+
 function generateCode(prefix, length) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   let code = `${prefix}-`
@@ -23,23 +38,7 @@ async function generateTicket(reservationId) {
 }
 
 async function getTicketById(id, userId) {
-  const ticket = await prisma.ticket.findUnique({
-    where: { id },
-    include: {
-      reservation: {
-        include: {
-          user: { select: { firstName: true, lastName: true, email: true, phone: true } },
-          trip: {
-            include: {
-              route: { include: { company: { select: { name: true } } } },
-              vehicle: { select: { type: true } },
-            },
-          },
-          seat: { select: { seatNumber: true, type: true } },
-        },
-      },
-    },
-  })
+  const ticket = await prisma.ticket.findUnique({ where: { id }, include: TICKET_INCLUDE })
   if (!ticket) {
     const err = new Error('Billet introuvable.')
     err.status = 404
@@ -53,8 +52,7 @@ async function getTicketById(id, userId) {
   return ticket
 }
 
-async function getTicketPdf(id, userId) {
-  const ticket = await getTicketById(id, userId)
+async function buildPdfBuffer(ticket) {
   const { reservation } = ticket
   const { trip, seat, user } = reservation
 
@@ -110,6 +108,55 @@ async function getTicketPdf(id, userId) {
   })
 }
 
+async function generateTicketPdfBuffer(reservationId) {
+  const ticket = await prisma.ticket.findUnique({
+    where: { reservationId },
+    include: TICKET_INCLUDE,
+  })
+  if (!ticket) {
+    const err = new Error('Ticket introuvable.')
+    err.status = 404
+    throw err
+  }
+  return buildPdfBuffer(ticket)
+}
+
+async function getTicketPdf(id, userId) {
+  const ticket = await getTicketById(id, userId)
+  return buildPdfBuffer(ticket)
+}
+
+async function resendTicketByEmail(id, userId) {
+  const ticket = await getTicketById(id, userId)
+  const pdfBuffer = await buildPdfBuffer(ticket)
+  const { sendEmail } = require('../notifications/notifications.service')
+  const { user, trip } = ticket.reservation
+  const date = new Date(trip.departureDate).toLocaleDateString('fr-FR')
+
+  await sendEmail({
+    to: user.email,
+    subject: `Votre billet Mobili — ${ticket.ticketCode}`,
+    html: `
+      <h2>Votre billet Mobili</h2>
+      <p>Bonjour ${user.firstName},</p>
+      <p>Vous trouverez en pièce jointe votre billet pour :</p>
+      <p>
+        <strong>${trip.route.origin} → ${trip.route.destination}</strong><br/>
+        Le ${date} à ${trip.departureTime}<br/>
+        Réf : <strong>${ticket.ticketCode}</strong>
+      </p>
+      <p>Présentez votre QR code à l'embarquement. Bon voyage !</p>
+    `,
+    attachments: [
+      {
+        filename: `billet-${ticket.ticketCode}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf',
+      },
+    ],
+  })
+}
+
 async function searchTickets({ q, companyId }) {
   const tickets = await prisma.ticket.findMany({
     where: {
@@ -137,4 +184,11 @@ async function searchTickets({ q, companyId }) {
   return tickets
 }
 
-module.exports = { generateTicket, getTicketById, getTicketPdf, searchTickets }
+module.exports = {
+  generateTicket,
+  getTicketById,
+  getTicketPdf,
+  generateTicketPdfBuffer,
+  resendTicketByEmail,
+  searchTickets,
+}

@@ -12,13 +12,19 @@ function createTransporter() {
   })
 }
 
-async function sendEmail({ to, subject, html }) {
+async function sendEmail({ to, subject, html, attachments = [] }) {
   const transporter = createTransporter()
   if (!transporter) {
     logger.info(`[EMAIL simulé] To: ${to} | Subject: ${subject}`)
     return
   }
-  await transporter.sendMail({ from: `"Mobili" <${process.env.SMTP_USER}>`, to, subject, html })
+  await transporter.sendMail({
+    from: `"Mobili" <${process.env.SMTP_USER}>`,
+    to,
+    subject,
+    html,
+    attachments,
+  })
 }
 
 async function sendSms({ phone, message }) {
@@ -47,10 +53,26 @@ async function notifyReservationConfirmed(reservationId) {
   const date = new Date(trip.departureDate).toLocaleDateString('fr-FR')
   const ticketCode = ticket?.ticketCode || reservation.reservationCode
 
+  // Générer le PDF en pièce jointe (lazy require pour éviter les dépendances circulaires)
+  let pdfAttachment = []
+  try {
+    const { generateTicketPdfBuffer } = require('../tickets/tickets.service')
+    const pdfBuffer = await generateTicketPdfBuffer(reservationId)
+    pdfAttachment = [
+      {
+        filename: `billet-${ticketCode}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf',
+      },
+    ]
+  } catch (err) {
+    logger.warn(`[notification] PDF non joint pour réservation ${reservationId}: ${err.message}`)
+  }
+
   const emailHtml = `
     <h2>Votre réservation est confirmée !</h2>
     <p>Bonjour ${user.firstName},</p>
-    <p>Votre billet Mobili est prêt.</p>
+    <p>Votre billet Mobili est prêt. Vous le trouverez en pièce jointe.</p>
     <table>
       <tr><td><strong>Trajet</strong></td><td>${origin} → ${destination}</td></tr>
       <tr><td><strong>Date</strong></td><td>${date} à ${trip.departureTime}</td></tr>
@@ -59,10 +81,15 @@ async function notifyReservationConfirmed(reservationId) {
     </table>
     <p>Présentez votre QR code à l'embarquement. Bon voyage !</p>
   `
-  const smsMessage = `Mobili - Billet confirmé ! ${origin}→${destination} le ${date} à ${trip.departureTime}. Réf: ${ticketCode}`
+  const smsMessage = `Mobili - Billet confirmé ! ${origin}→${destination} le ${date} à ${trip.departureTime}. Réf: ${ticketCode}. Bon voyage !`
 
   await Promise.allSettled([
-    sendEmail({ to: user.email, subject: 'Votre billet Mobili est prêt', html: emailHtml }),
+    sendEmail({
+      to: user.email,
+      subject: 'Votre billet Mobili est prêt',
+      html: emailHtml,
+      attachments: pdfAttachment,
+    }),
     sendSms({ phone: user.phone, message: smsMessage }),
     prisma.notification.create({
       data: {
@@ -95,4 +122,4 @@ async function notifyTripCancelled(tripId) {
   }
 }
 
-module.exports = { notifyReservationConfirmed, notifyTripCancelled }
+module.exports = { sendEmail, sendSms, notifyReservationConfirmed, notifyTripCancelled }
