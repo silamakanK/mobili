@@ -44,12 +44,14 @@ jobs:
         working-directory: mobili/backend
         env:
           DATABASE_URL: postgresql://mobili:mobili_test@localhost:5432/mobili_test
+          DIRECT_URL: postgresql://mobili:mobili_test@localhost:5432/mobili_test
         run: npx prisma generate
 
       - name: Run Prisma migrate
         working-directory: mobili/backend
         env:
           DATABASE_URL: postgresql://mobili:mobili_test@localhost:5432/mobili_test
+          DIRECT_URL: postgresql://mobili:mobili_test@localhost:5432/mobili_test
         run: npx prisma migrate deploy
 
       - name: Lint
