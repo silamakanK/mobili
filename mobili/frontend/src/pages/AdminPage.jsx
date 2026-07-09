@@ -755,9 +755,10 @@ function TrajetsSection() {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterOrigin, setFilterOrigin] = useState('')
   const [filterDestination, setFilterDestination] = useState('')
-  const [filterFrom, setFilterFrom] = useState('')
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const [filterFrom, setFilterFrom] = useState(todayStr)
   const [filterTo, setFilterTo] = useState('')
-  const [activePeriod, setActivePeriod] = useState('all')
+  const [activePeriod, setActivePeriod] = useState('upcoming')
 
   const load = useCallback((p = 1, opts = {}) => {
     setLoading(true)
@@ -790,6 +791,10 @@ function TrajetsSection() {
   const applyPeriod = (period) => {
     setActivePeriod(period)
     const now = new Date()
+    if (period === 'upcoming') {
+      const from = now.toISOString().slice(0, 10)
+      setFilterFrom(from); setFilterTo(''); load(1, { from, to: '' }); return
+    }
     if (period === 'all') { setFilterFrom(''); setFilterTo(''); load(1, { from: '', to: '' }); return }
     if (period === 'week') {
       const start = new Date(now); start.setDate(now.getDate() - now.getDay() + 1)
@@ -806,8 +811,9 @@ function TrajetsSection() {
 
   const applyFilters = () => { setPage(1); load(1) }
   const resetFilters = () => {
-    setFilterStatus(''); setFilterOrigin(''); setFilterDestination(''); setFilterFrom(''); setFilterTo(''); setActivePeriod('all')
-    load(1, { status: '', origin: '', destination: '', from: '', to: '' })
+    const from = new Date().toISOString().slice(0, 10)
+    setFilterStatus(''); setFilterOrigin(''); setFilterDestination(''); setFilterFrom(from); setFilterTo(''); setActivePeriod('upcoming')
+    load(1, { status: '', origin: '', destination: '', from, to: '' })
   }
 
   const handleSubmit = async (e) => {
@@ -1200,7 +1206,7 @@ function TrajetsSection() {
           <div>
             <label className="text-label-sm text-on-surface-variant block mb-1">Période</label>
             <div className="flex gap-1">
-              {[['all', 'Tout'], ['week', 'Semaine'], ['month', 'Mois']].map(([k, l]) => (
+              {[['upcoming', 'À venir'], ['all', 'Tout'], ['week', 'Semaine'], ['month', 'Mois']].map(([k, l]) => (
                 <button
                   key={k}
                   onClick={() => applyPeriod(k)}
@@ -1211,18 +1217,20 @@ function TrajetsSection() {
               ))}
             </div>
           </div>
-          {activePeriod === 'all' && (
+          {(activePeriod === 'all' || activePeriod === 'upcoming') && (
             <>
               <div>
                 <label className="text-label-sm text-on-surface-variant block mb-1">Du</label>
                 <input type="date" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)}
                   className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
-              <div>
-                <label className="text-label-sm text-on-surface-variant block mb-1">Au</label>
-                <input type="date" value={filterTo} onChange={(e) => setFilterTo(e.target.value)}
-                  className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary" />
-              </div>
+              {activePeriod === 'all' && (
+                <div>
+                  <label className="text-label-sm text-on-surface-variant block mb-1">Au</label>
+                  <input type="date" value={filterTo} onChange={(e) => setFilterTo(e.target.value)}
+                    className="border border-outline-variant rounded-lg px-3 py-1.5 text-body-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+              )}
             </>
           )}
           <div className="flex gap-2 ml-auto">
@@ -1721,7 +1729,7 @@ function PlacesSection() {
           <div className="flex flex-wrap gap-4 mt-3 text-body-sm text-on-surface-variant">
             <span className="text-primary font-medium">{availableCount} libre{availableCount !== 1 ? 's' : ''}</span>
             <span className="text-error font-medium">{reservedCount} réservé{reservedCount !== 1 ? 's' : ''}</span>
-            {blockedCount > 0 && <span className="text-on-surface-variant font-medium">{blockedCount} bloqué{blockedCount !== 1 ? 's' : ''} manuellement</span>}
+            {blockedCount > 0 && <span className="text-on-surface-variant font-medium">{blockedCount} occupé{blockedCount !== 1 ? 's' : ''} (résa physique)</span>}
           </div>
         )}
       </div>
@@ -1760,7 +1768,7 @@ function PlacesSection() {
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="w-4 h-4 rounded bg-surface-variant border border-outline-variant inline-block" />
-                  Bloqué (ce trajet)
+                  Occupé (résa physique)
                 </span>
               </div>
               <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-2">
@@ -1776,9 +1784,9 @@ function PlacesSection() {
                       disabled={updating === seat.id || !canToggle}
                       title={
                         isReserved ? `Siège ${seat.seatNumber} — Réservé`
-                        : isTripBlocked ? `Siège ${seat.seatNumber} — Bloqué pour ce trajet (clic pour libérer)`
+                        : isTripBlocked ? `Siège ${seat.seatNumber} — Occupé (réservation physique) — clic pour libérer`
                         : isBroken ? `Siège ${seat.seatNumber} — Hors service`
-                        : `Siège ${seat.seatNumber} — Disponible (clic pour bloquer)`
+                        : `Siège ${seat.seatNumber} — Disponible — clic pour marquer comme occupé`
                       }
                       className={`
                         flex flex-col items-center justify-center rounded-lg py-2 px-1 border transition text-label-sm font-medium gap-0.5

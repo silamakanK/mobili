@@ -123,11 +123,11 @@ async function listCompanyTrips(
       ...(destination ? { destination: { contains: destination, mode: 'insensitive' } } : {}),
     },
     ...(status ? { status } : {}),
-    ...(from && to
+    ...(from || to
       ? {
           departureDate: {
-            gte: new Date(`${from}T00:00:00.000Z`),
-            lte: new Date(`${to}T23:59:59.999Z`),
+            ...(from ? { gte: new Date(`${from}T00:00:00.000Z`) } : {}),
+            ...(to ? { lte: new Date(`${to}T23:59:59.999Z`) } : {}),
           },
         }
       : {}),
