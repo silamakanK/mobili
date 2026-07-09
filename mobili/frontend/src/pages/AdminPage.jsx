@@ -2145,8 +2145,8 @@ function RecurringTripsSection({ user }) {
         listVehicles(),
       ])
       setTemplates(tRes.data?.data || [])
-      setRoutes(rRes.data?.data || [])
-      setVehicles(vRes.data?.data || [])
+      setRoutes(rRes.data?.data?.routes || [])
+      setVehicles(vRes.data?.data?.vehicles || [])
     } catch {
       setError('Erreur lors du chargement.')
     } finally {
@@ -2182,8 +2182,8 @@ function RecurringTripsSection({ user }) {
     setError(null)
     try {
       const res = await generateTrips(id, 4)
-      const created = res.data?.data?.created ?? 0
-      alert(`${created} trajet(s) généré(s) pour les 4 prochaines semaines.`)
+      const { generated = 0, skipped = 0 } = res.data?.data || {}
+      alert(`${generated} trajet(s) créé(s), ${skipped} déjà existant(s).`)
     } catch (err) {
       setError(err.response?.data?.error || 'Erreur lors de la génération.')
     } finally {
